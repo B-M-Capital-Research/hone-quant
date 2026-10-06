@@ -1,0 +1,48 @@
+# Local evaluation: PostgreSQL 17 + hone-quant. Demo market data by default; set
+# HONE_QUANT_MARKET_DATA=fmp and HONE_QUANT_FMP_API_KEY in your shell or a .env file for real data.
+#
+#   docker compose up --build        →  http://127.0.0.1:8090  (admin / $HONE_QUANT_ADMIN_PASSWORD)
+#
+# PostgreSQL is published on 127.0.0.1:5434 so it does not clash with honeclaw's dev database.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: hone_quant
+      POSTGRES_USER: hone_quant
+      POSTGRES_PASSWORD: hone_quant_dev
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - hone_quant_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hone_quant -d hone_quant"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  hone-quant:
+    build:
+      context: .
+      args:
+        HONE_QUANT_REVISION: ${HONE_QUANT_REVISION:-compose}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HONE_QUANT_DATABASE_URL: postgres://hone_quant:hone_quant_dev@postgres:5432/hone_quant
+      HONE_QUANT_MARKET_DATA: ${HONE_QUANT_MARKET_DATA:-demo}
+      HONE_QUANT_FMP_API_KEY: ${HONE_QUANT_FMP_API_KEY:-}
+      HONE_QUANT_ADMIN_USER: ${HONE_QUANT_ADMIN_USER:-admin}
+      HONE_QUANT_ADMIN_PASSWORD: ${HONE_QUANT_ADMIN_PASSWORD:-change-this-password}
+      HONE_QUANT_LOG_FORMAT: text
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - hone_quant_state:/var/lib/hone-quant
+    restart: unless-stopped
+
+volumes:
+  hone_quant_pg:
+  hone_quant_state:

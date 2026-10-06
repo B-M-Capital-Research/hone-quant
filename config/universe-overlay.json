@@ -1,0 +1,164 @@
+{
+  "_comment": "Bilingual display names and portfolio-construction choices layered on top of the honeclaw industry ontology (skills/industry-map/references/industry-map.json). Membership always comes from the ontology; this file only names things and picks a primary sector for companies listed in more than one sector.",
+  "sectors": {
+    "ai-chip": {
+      "name_zh": "AI 芯片",
+      "name_en": "AI Chips",
+      "summary_en": "Task growth reaches revenue and per-share value only through unit efficiency, deliverable systems and vendor value capture."
+    },
+    "storage": {
+      "name_zh": "存储",
+      "name_en": "Memory & Storage",
+      "summary_en": "AI memory demand, qualified supply and contract delivery decide profit durability; HBM, commodity DRAM, NAND and HDD are modelled separately."
+    },
+    "optical": {
+      "name_zh": "光通信与 AI 互连",
+      "name_en": "Optical & AI Interconnect",
+      "summary_en": "Interconnect value comes from reducing system wait time, but revenue counts only qualified components, modules or systems sold externally."
+    },
+    "power": {
+      "name_zh": "电力与供电",
+      "name_en": "Power & Energy Supply",
+      "summary_en": "Power value depends on delivery timing, reliability and lifetime cost; equipment revenue and power-sales cash flows are never mixed."
+    },
+    "neocloud": {
+      "name_zh": "新云",
+      "name_en": "Neoclouds",
+      "summary_en": "Contracts create durable equity value only once they become billable capacity and post-financing cash returns per share."
+    },
+    "equipment": {
+      "name_zh": "半导体设备",
+      "name_en": "Semiconductor Equipment",
+      "summary_en": "Process complexity becomes equipment revenue only through customer investment, orders and acceptance."
+    },
+    "server-oem": {
+      "name_zh": "AI 服务器与整机",
+      "name_en": "AI Servers & Systems",
+      "summary_en": "Server valuation rests on retained profit and capital turnover; pass-through GPU content earns no chip-platform premium."
+    },
+    "hyperscaler": {
+      "name_zh": "云厂与 AI 平台",
+      "name_en": "Hyperscalers & AI Platforms",
+      "summary_en": "Cloud platform value comes from paid adoption and incremental returns on capital; RPO and capex size are not value in themselves."
+    },
+    "space": {
+      "name_zh": "商业太空",
+      "name_en": "Commercial Space",
+      "summary_en": "Launch, satellite systems and connectivity services run different capital cycles; value is assessed per deliverable contract and service economics."
+    },
+    "ai-apps": {
+      "name_zh": "AI 应用与数据服务",
+      "name_en": "AI Applications & Data Services",
+      "summary_en": "AI adoption must turn into billing, retention and unit economics; different revenue models cannot share one software multiple."
+    }
+  },
+  "subtypes": {
+    "gpu-platform": "GPU platforms",
+    "custom-and-network-silicon": "Custom & networking silicon",
+    "ip-licensing-royalty": "IP licensing & royalties",
+    "foundry-and-packaging": "Foundry & packaging",
+    "dram-hbm": "DRAM & HBM",
+    "nand-enterprise-ssd": "NAND & enterprise SSD",
+    "nearline-hdd": "Nearline HDD",
+    "laser-components-vertical-integration": "Lasers, components & vertical integration",
+    "modules-contract-manufacturing": "Modules & contract manufacturing",
+    "connectivity-silicon": "Connectivity silicon",
+    "network-systems": "Network systems",
+    "fiber-and-connectivity": "Fiber & connectivity",
+    "onsite-power-equipment": "On-site power equipment",
+    "power-equipment-thermal": "Power equipment & thermal management",
+    "grid-engineering-nuclear-supply": "Grid engineering & nuclear supply",
+    "generation-and-retail-power": "Generation & retail power",
+    "licensing-commercialization-milestones": "Licensing & commercialization milestones",
+    "gpu-cloud-project-portfolio": "GPU cloud & project portfolio",
+    "lithography-process-control": "Lithography & process control",
+    "etch-deposition-materials": "Etch, deposition & materials engineering",
+    "test-and-probe": "Test & probe",
+    "metrology-inspection-advanced-packaging": "Metrology, inspection & advanced packaging",
+    "materials-and-components": "Materials & components",
+    "branded-servers-enterprise-infra": "Branded servers & enterprise infrastructure",
+    "system-integration-ems": "System integration & EMS",
+    "hybrid-cloud-platform": "Hybrid cloud & platforms",
+    "integrated-space-connectivity-platform": "Integrated space & connectivity platforms",
+    "launch-and-satellite-systems": "Launch & satellite systems",
+    "enterprise-workflow-software": "Enterprise workflow software",
+    "consumption-data-platform": "Consumption data platforms",
+    "medical-diagnostics-data-applications": "Medical diagnostics & data applications",
+    "digital-health-consumer-platform": "Digital health consumer platforms"
+  },
+  "assets": {
+    "NVDA": { "name_zh": "英伟达", "name_en": "NVIDIA" },
+    "AVGO": { "name_zh": "博通", "name_en": "Broadcom" },
+    "TSM": { "name_zh": "台积电", "name_en": "TSMC" },
+    "AMD": { "name_zh": "超微半导体", "name_en": "AMD" },
+    "MRVL": { "name_zh": "迈威尔科技", "name_en": "Marvell Technology" },
+    "ALAB": { "name_zh": "Astera Labs", "name_en": "Astera Labs" },
+    "ARM": { "name_zh": "Arm", "name_en": "Arm Holdings" },
+    "AMKR": { "name_zh": "安靠科技", "name_en": "Amkor Technology" },
+    "ASX": { "name_zh": "日月光投控", "name_en": "ASE Technology" },
+    "INTC": { "name_zh": "英特尔", "name_en": "Intel" },
+    "MU": { "name_zh": "美光科技", "name_en": "Micron Technology" },
+    "SNDK": { "name_zh": "闪迪", "name_en": "SanDisk" },
+    "STX": { "name_zh": "希捷科技", "name_en": "Seagate Technology" },
+    "WDC": { "name_zh": "西部数据", "name_en": "Western Digital" },
+    "COHR": { "name_zh": "Coherent", "name_en": "Coherent" },
+    "LITE": { "name_zh": "Lumentum", "name_en": "Lumentum" },
+    "FN": { "name_zh": "Fabrinet", "name_en": "Fabrinet" },
+    "CRDO": { "name_zh": "Credo", "name_en": "Credo Technology" },
+    "AAOI": { "name_zh": "应用光电", "name_en": "Applied Optoelectronics" },
+    "ANET": { "name_zh": "Arista Networks", "name_en": "Arista Networks" },
+    "GLW": { "name_zh": "康宁", "name_en": "Corning" },
+    "CIEN": { "name_zh": "Ciena", "name_en": "Ciena" },
+    "GEV": { "name_zh": "GE Vernova", "name_en": "GE Vernova" },
+    "VST": { "name_zh": "Vistra", "name_en": "Vistra" },
+    "CEG": { "name_zh": "Constellation Energy", "name_en": "Constellation Energy" },
+    "VRT": { "name_zh": "维谛技术", "name_en": "Vertiv" },
+    "ETN": { "name_zh": "伊顿", "name_en": "Eaton" },
+    "CAT": { "name_zh": "卡特彼勒", "name_en": "Caterpillar" },
+    "BE": { "name_zh": "Bloom Energy", "name_en": "Bloom Energy" },
+    "TLN": { "name_zh": "Talen Energy", "name_en": "Talen Energy" },
+    "BWXT": { "name_zh": "BWX Technologies", "name_en": "BWX Technologies" },
+    "NRG": { "name_zh": "NRG Energy", "name_en": "NRG Energy" },
+    "PWR": { "name_zh": "Quanta Services", "name_en": "Quanta Services" },
+    "OKLO": { "name_zh": "Oklo", "name_en": "Oklo" },
+    "CRWV": { "name_zh": "CoreWeave", "name_en": "CoreWeave" },
+    "NBIS": { "name_zh": "Nebius", "name_en": "Nebius Group" },
+    "IREN": { "name_zh": "IREN", "name_en": "IREN" },
+    "ASML": { "name_zh": "阿斯麦", "name_en": "ASML" },
+    "AMAT": { "name_zh": "应用材料", "name_en": "Applied Materials" },
+    "LRCX": { "name_zh": "拉姆研究", "name_en": "Lam Research" },
+    "KLAC": { "name_zh": "科磊", "name_en": "KLA" },
+    "TER": { "name_zh": "泰瑞达", "name_en": "Teradyne" },
+    "ONTO": { "name_zh": "Onto Innovation", "name_en": "Onto Innovation" },
+    "CAMT": { "name_zh": "Camtek", "name_en": "Camtek" },
+    "NVMI": { "name_zh": "Nova", "name_en": "Nova" },
+    "FORM": { "name_zh": "FormFactor", "name_en": "FormFactor" },
+    "MKSI": { "name_zh": "MKS Instruments", "name_en": "MKS Instruments" },
+    "ENTG": { "name_zh": "Entegris", "name_en": "Entegris" },
+    "UCTT": { "name_zh": "Ultra Clean", "name_en": "Ultra Clean Holdings" },
+    "DELL": { "name_zh": "戴尔科技", "name_en": "Dell Technologies" },
+    "SMCI": { "name_zh": "超微电脑", "name_en": "Super Micro Computer" },
+    "HPE": { "name_zh": "慧与", "name_en": "Hewlett Packard Enterprise" },
+    "CLS": { "name_zh": "Celestica", "name_en": "Celestica" },
+    "MSFT": { "name_zh": "微软", "name_en": "Microsoft" },
+    "GOOGL": { "name_zh": "谷歌", "name_en": "Alphabet" },
+    "AMZN": { "name_zh": "亚马逊", "name_en": "Amazon" },
+    "META": { "name_zh": "Meta", "name_en": "Meta Platforms" },
+    "ORCL": { "name_zh": "甲骨文", "name_en": "Oracle" },
+    "BABA": { "name_zh": "阿里巴巴", "name_en": "Alibaba" },
+    "RKLB": { "name_zh": "火箭实验室", "name_en": "Rocket Lab" },
+    "PLTR": { "name_zh": "帕兰提尔", "name_en": "Palantir" },
+    "SNOW": { "name_zh": "Snowflake", "name_en": "Snowflake" },
+    "TEM": { "name_zh": "Tempus AI", "name_en": "Tempus AI" },
+    "HIMS": { "name_zh": "Hims & Hers", "name_en": "Hims & Hers Health" }
+  },
+  "primary_sector": {
+    "AVGO": "ai-chip",
+    "MRVL": "ai-chip"
+  },
+  "benchmarks": [
+    { "symbol": "SPY", "name_zh": "标普 500 ETF", "name_en": "S&P 500 ETF (SPY)" },
+    { "symbol": "QQQ", "name_zh": "纳指 100 ETF", "name_en": "Nasdaq-100 ETF (QQQ)" },
+    { "symbol": "SMH", "name_zh": "半导体 ETF", "name_en": "Semiconductor ETF (SMH)" }
+  ]
+}

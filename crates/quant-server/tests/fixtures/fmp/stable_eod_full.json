@@ -1,0 +1,9 @@
+[
+  {"symbol": "AAPL", "date": "2025-10-03", "open": 254.665, "high": 259.24, "low": 253.95, "close": 258.02, "volume": 49155614, "change": 3.355, "changePercent": 1.31741, "vwap": 256.47},
+  {"symbol": "AAPL", "date": "2025-10-02", "open": 256.58, "high": 258.18, "low": 254.15, "close": 257.13, "volume": 42630239, "change": 0.55, "changePercent": 0.21436, "vwap": 256.51},
+  {"symbol": "AAPL", "date": "2025-10-01", "open": 255.04, "high": 258.79, "low": 254.93, "close": 255.45, "volume": 48713940, "change": 0.41, "changePercent": 0.16076, "vwap": 256.05},
+  {"symbol": "AAPL", "date": "2025-10-01", "open": 255.04, "high": 258.79, "low": 254.93, "close": 255.45, "volume": 48713940, "change": 0.41, "changePercent": 0.16076, "vwap": 256.05},
+  {"symbol": "AAPL", "date": "2025-09-30", "open": 254.855, "high": 255.919, "low": 253.11, "close": 254.63, "volume": 37704259, "change": -0.225, "changePercent": -0.08829, "vwap": 254.63},
+  {"symbol": "AAPL", "date": "2025-09-29", "open": 254.56, "high": 255.0, "low": 253.01, "close": 254.43, "volume": 40127687, "change": -0.13, "changePercent": -0.05107, "vwap": 254.25},
+  {"symbol": "AAPL", "date": "2025-09-26", "open": 254.095, "high": 257.6, "low": 253.78, "close": 255.46, "volume": 46076258, "change": 1.365, "changePercent": 0.5372, "vwap": 255.23}
+]

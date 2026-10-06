@@ -1,0 +1,7 @@
+[
+  {"symbol": "AAPL", "date": "2020-08-31", "numerator": 4, "denominator": 1},
+  {"symbol": "AAPL", "date": "2014-06-09", "numerator": 7, "denominator": 1},
+  {"symbol": "AAPL", "date": "2005-02-28", "numerator": 2, "denominator": 1},
+  {"symbol": "AAPL", "date": "2000-06-21", "numerator": 2, "denominator": 1},
+  {"symbol": "AAPL", "date": "1987-06-16", "numerator": 2, "denominator": 1}
+]

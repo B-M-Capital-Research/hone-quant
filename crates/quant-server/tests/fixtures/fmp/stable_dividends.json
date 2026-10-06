@@ -1,0 +1,6 @@
+[
+  {"symbol": "AAPL", "date": "2025-08-11", "recordDate": "2025-08-11", "paymentDate": "2025-08-14", "declarationDate": "2025-07-31", "adjDividend": 0.26, "dividend": 0.26, "yield": 0.4440104166666667, "frequency": "Quarterly"},
+  {"symbol": "AAPL", "date": "2025-05-12", "recordDate": "2025-05-12", "paymentDate": "2025-05-15", "declarationDate": "2025-05-01", "adjDividend": 0.26, "dividend": 0.26, "yield": 0.4800036923361364, "frequency": "Quarterly"},
+  {"symbol": "AAPL", "date": "2025-02-10", "recordDate": "2025-02-10", "paymentDate": "2025-02-13", "declarationDate": "2025-01-30", "adjDividend": 0.25, "dividend": 0.25, "yield": 0.429553264604811, "frequency": "Quarterly"},
+  {"symbol": "AAPL", "date": "1995-11-21", "recordDate": "", "paymentDate": "", "declarationDate": "", "adjDividend": 0.00107, "dividend": null, "yield": 0, "frequency": "Quarterly"}
+]

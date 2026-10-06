@@ -1,0 +1,239 @@
+/*
+ * Design tokens.
+ *
+ * `--hone-*` are honeclaw's public brand tokens (same names and values as
+ * honeclaw/packages/app/src/pages/public-foundation.css) so hone-quant reads as part of the
+ * same product family. `--hq-*` are hone-quant additions: market polarity colours, chart
+ * chrome, series and ramps. Pages consume tokens only — no raw colours outside this file.
+ *
+ * Chart colours were validated with the dataviz palette validator (lightness band, chroma,
+ * CVD separation, normal-vision floor, contrast) against the light and dark card surfaces.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Type */
+  --hone-font-display: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --hone-font-body: var(--hone-font-display);
+  --hone-font-label: "SFMono-Regular", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --hone-text-2xs: 11px;
+  --hone-text-xs: 12px;
+  --hone-text-sm: 13px;
+  --hone-text-md: 14px;
+  --hone-text-lg: 16px;
+  --hone-text-xl: 20px;
+  --hone-text-2xl: 28px;
+  --hq-text-hero: 40px;
+
+  /* Shape & motion */
+  --hone-radius-xs: 8px;
+  --hone-radius-sm: 10px;
+  --hone-radius-md: 16px;
+  --hone-radius-lg: 24px;
+  --hone-radius-pill: 999px;
+  --hone-shadow-sm: 0 2px 10px rgba(30, 35, 32, 0.06);
+  --hone-shadow-md: 0 18px 48px rgba(30, 35, 32, 0.12);
+  --hone-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Ink & surfaces */
+  --hone-ink-950: #17201f;
+  --hone-ink-800: #2d3735;
+  --hone-ink-600: #606c68;
+  --hone-ink-500: #68736f;
+  --hone-ink-400: #68736f;
+  --hone-paper-50: #fffdf8;
+  --hone-paper-100: #f8f4ec;
+  --hone-paper-200: #eee8dc;
+  --hone-surface-raised: #ffffff;
+  --hone-control-surface: #ffffff;
+  --hone-line: rgba(23, 32, 31, 0.11);
+  --hone-line-strong: rgba(23, 32, 31, 0.18);
+
+  /* Brand */
+  --hone-coral-500: #f06449;
+  --hone-coral-600: #b94432;
+  --hone-action-bg: #b94432;
+  --hone-action-fg: #ffffff;
+  --hone-inverse-bg: #17201f;
+  --hone-inverse-fg: #f3f5f2;
+  --hone-inverse-muted: #b5bcb6;
+  --hone-link: #a83c2c;
+  --hone-error-600: #96342d;
+  --hone-success-600: #176a38;
+  --hone-focus-ring: #17201f;
+
+  /* Status signals: plain = marks/dots, -soft = chip background, -ink = text on chips */
+  --hone-signal-green: #1f7a45;
+  --hone-signal-yellow: #a37b12;
+  --hone-signal-orange: #b35d24;
+  --hone-signal-red: #b94432;
+  --hone-signal-neutral: #68736f;
+  --hone-signal-green-soft: #e7f1e9;
+  --hone-signal-yellow-soft: #f7efd9;
+  --hone-signal-orange-soft: #f8ead9;
+  --hone-signal-red-soft: #f9e6e0;
+  --hone-signal-neutral-soft: #eeece5;
+  --hone-signal-green-ink: #1f7a45;
+  --hone-signal-yellow-ink: #87660f;
+  --hone-signal-orange-ink: #a15420;
+  --hone-signal-red-ink: #b34230;
+  --hone-signal-neutral-ink: #616b67;
+  --hq-signal-blue: #2a64b0;
+  --hq-signal-blue-soft: #e5eef9;
+  --hq-signal-blue-ink: #24589c;
+
+  /* Interactive fills */
+  --hq-hover: color-mix(in srgb, var(--hone-ink-950) 5%, transparent);
+  --hq-pressed: color-mix(in srgb, var(--hone-ink-950) 9%, transparent);
+  --hq-selected: var(--hone-paper-200);
+  --hq-backdrop: rgba(23, 32, 31, 0.42);
+
+  /* Market polarity (default: green up / red down). Marks vs text-safe ink. */
+  --hq-up: #0b7340;
+  --hq-down: #ea6a58;
+  --hq-up-ink: #1f7a45;
+  --hq-down-ink: #b34230;
+  --hq-up-soft: #e3f1e8;
+  --hq-down-soft: #fbe7e3;
+  --hq-flat: #8a938f;
+
+  /* Chart chrome */
+  --hq-chart-surface: #ffffff;
+  --hq-chart-grid: #ebe7de;
+  --hq-chart-axis: #d6d0c4;
+  --hq-chart-label: #68736f;
+  --hq-chart-band: rgba(23, 32, 31, 0.028);
+  --hq-chart-crosshair: rgba(23, 32, 31, 0.32);
+
+  /* Categorical series (Hone theme order): portfolio, then benchmarks in configured order. */
+  --hq-series-1: #eb6834;
+  --hq-series-2: #2a78d6;
+  --hq-series-3: #1baf7a;
+  --hq-series-4: #4a3aa7;
+  --hq-series-5: #e87ba4;
+
+  /* Sequential (weights) and diverging midpoint */
+  --hq-seq-100: #cde2fb;
+  --hq-seq-250: #86b6ef;
+  --hq-seq-400: #3987e5;
+  --hq-seq-550: #1c5cab;
+  --hq-seq-700: #0d366b;
+  --hq-diverge-mid: #f0efec;
+
+  /* Layout */
+  --hq-sidebar: 232px;
+  --hq-topbar: 60px;
+  --hq-gutter: 24px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --hone-ink-950: #f3f5f2;
+  --hone-ink-800: #d8dcd7;
+  --hone-ink-600: #b5bcb6;
+  --hone-ink-500: #a8b0aa;
+  --hone-ink-400: #9ca69f;
+  --hone-paper-50: #171a18;
+  --hone-paper-100: #1e2220;
+  --hone-paper-200: #2b302d;
+  --hone-surface-raised: #242825;
+  --hone-control-surface: #171a18;
+  --hone-line: rgba(255, 255, 255, 0.13);
+  --hone-line-strong: rgba(255, 255, 255, 0.22);
+  --hone-coral-500: #ff8a73;
+  --hone-coral-600: #ff9a86;
+  --hone-action-bg: #ffad9d;
+  --hone-action-fg: #17201f;
+  --hone-link: #ffad9d;
+  --hone-error-600: #ffb3a8;
+  --hone-success-600: #85dca4;
+  --hone-focus-ring: #f5f0e5;
+  --hone-signal-green: #7fd6a1;
+  --hone-signal-yellow: #e3c06a;
+  --hone-signal-orange: #e8a06a;
+  --hone-signal-red: #ff9a86;
+  --hone-signal-neutral: #a8b0aa;
+  --hone-signal-green-soft: rgba(127, 214, 161, 0.16);
+  --hone-signal-yellow-soft: rgba(227, 192, 106, 0.16);
+  --hone-signal-orange-soft: rgba(232, 160, 106, 0.16);
+  --hone-signal-red-soft: rgba(255, 154, 134, 0.16);
+  --hone-signal-neutral-soft: rgba(168, 176, 170, 0.16);
+  --hone-signal-green-ink: #7fd6a1;
+  --hone-signal-yellow-ink: #e3c06a;
+  --hone-signal-orange-ink: #e8a06a;
+  --hone-signal-red-ink: #ff9a86;
+  --hone-signal-neutral-ink: #a8b0aa;
+  --hq-signal-blue: #8fb8f2;
+  --hq-signal-blue-soft: rgba(143, 184, 242, 0.16);
+  --hq-signal-blue-ink: #8fb8f2;
+  --hq-hover: color-mix(in srgb, var(--hone-ink-950) 7%, transparent);
+  --hq-pressed: color-mix(in srgb, var(--hone-ink-950) 12%, transparent);
+  --hq-backdrop: rgba(0, 0, 0, 0.55);
+
+  --hq-up: #35ae6c;
+  --hq-down: #c84438;
+  --hq-up-ink: #7fd6a1;
+  --hq-down-ink: #ff9a86;
+  --hq-up-soft: rgba(53, 174, 108, 0.16);
+  --hq-down-soft: rgba(200, 68, 56, 0.18);
+  --hq-flat: #7d8681;
+
+  --hq-chart-surface: #242825;
+  --hq-chart-grid: #313733;
+  --hq-chart-axis: #424a45;
+  --hq-chart-label: #a8b0aa;
+  --hq-chart-band: rgba(255, 255, 255, 0.035);
+  --hq-chart-crosshair: rgba(243, 245, 242, 0.35);
+
+  --hq-series-1: #d95926;
+  --hq-series-2: #3987e5;
+  --hq-series-3: #199e70;
+  --hq-series-4: #9085e9;
+  --hq-series-5: #d55181;
+
+  --hq-seq-100: #1d3a5c;
+  --hq-seq-250: #255b96;
+  --hq-seq-400: #3987e5;
+  --hq-seq-550: #6da7ec;
+  --hq-seq-700: #b7d3f6;
+  --hq-diverge-mid: #383835;
+}
+
+/* China/HK convention: red up, green down (same validated steps, swapped). */
+:root[data-updown="red-up"] {
+  --hq-up: #ea6a58;
+  --hq-down: #0b7340;
+  --hq-up-ink: #b34230;
+  --hq-down-ink: #1f7a45;
+  --hq-up-soft: #fbe7e3;
+  --hq-down-soft: #e3f1e8;
+}
+
+:root[data-theme="dark"][data-updown="red-up"] {
+  --hq-up: #c84438;
+  --hq-down: #35ae6c;
+  --hq-up-ink: #ff9a86;
+  --hq-down-ink: #7fd6a1;
+  --hq-up-soft: rgba(200, 68, 56, 0.18);
+  --hq-down-soft: rgba(53, 174, 108, 0.16);
+}
+
+/* Colour-vision-friendly: blue up, orange down. */
+:root[data-updown="blue-orange"] {
+  --hq-up: #2a78d6;
+  --hq-down: #eb6834;
+  --hq-up-ink: #1f5fae;
+  --hq-down-ink: #b5501f;
+  --hq-up-soft: #e5eef9;
+  --hq-down-soft: #fbeadf;
+}
+
+:root[data-theme="dark"][data-updown="blue-orange"] {
+  --hq-up: #3987e5;
+  --hq-down: #d95926;
+  --hq-up-ink: #8fb8f2;
+  --hq-down-ink: #f2a37f;
+  --hq-up-soft: rgba(57, 135, 229, 0.18);
+  --hq-down-soft: rgba(217, 89, 38, 0.18);
+}

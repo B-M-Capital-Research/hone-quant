@@ -1,0 +1,8 @@
+{
+  "symbol": "AAPL",
+  "historical": [
+    {"date": "2025-08-11", "label": "August 11, 25", "adjDividend": 0.26, "dividend": 0.26, "recordDate": "2025-08-11", "paymentDate": "2025-08-14", "declarationDate": "2025-07-31"},
+    {"date": "2025-05-12", "label": "May 12, 25", "adjDividend": 0.26, "dividend": 0.26, "recordDate": "2025-05-12", "paymentDate": "2025-05-15", "declarationDate": "2025-05-01"},
+    {"date": "2012-08-09", "label": "August 09, 12", "adjDividend": 0.094643, "dividend": 2.65, "recordDate": "2012-08-13", "paymentDate": "2012-08-16", "declarationDate": "2012-07-24"}
+  ]
+}

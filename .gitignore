@@ -1,0 +1,31 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Web
+/web/node_modules/
+/web/dist/
+/dist/
+/web/test-results/
+/web/playwright-report/
+*.tsbuildinfo
+
+# Local state & secrets
+/data/
+/.env
+/.env.*
+!/.env.example
+*.key
+*.pem
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs
+*.log
+
+# Agent worktrees
+/.claude/worktrees/

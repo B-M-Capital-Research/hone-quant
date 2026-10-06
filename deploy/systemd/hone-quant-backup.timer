@@ -1,0 +1,12 @@
+# /etc/systemd/system/hone-quant-backup.timer
+# Daily after the US close and the end-of-day snapshot (22:30 UTC = 06:30 SGT).
+[Unit]
+Description=Daily hone-quant database backup
+
+[Timer]
+OnCalendar=*-*-* 22:30:00 UTC
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

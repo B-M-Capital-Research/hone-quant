@@ -1,0 +1,10 @@
+{
+  "symbol": "AAPL",
+  "historical": [
+    {"date": "2020-08-31", "label": "August 31, 20", "numerator": 4, "denominator": 1},
+    {"date": "2014-06-09", "label": "June 09, 14", "numerator": 7, "denominator": 1},
+    {"date": "2005-02-28", "label": "February 28, 05", "numerator": 2, "denominator": 1},
+    {"date": "2000-06-21", "label": "June 21, 00", "numerator": 2, "denominator": 1},
+    {"date": "1987-06-16", "label": "June 16, 87", "numerator": 2, "denominator": 1}
+  ]
+}

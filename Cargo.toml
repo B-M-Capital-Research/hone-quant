@@ -1,0 +1,78 @@
+[workspace]
+resolver = "2"
+members = ["crates/quant-core", "crates/quant-server"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["HONE"]
+license = "MIT"
+rust-version = "1.88"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+tokio-stream = { version = "0.1", features = ["sync"] }
+async-stream = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# HTTP
+axum = { version = "0.8", features = ["macros"] }
+tower-http = { version = "0.6", features = ["cors", "compression-gzip", "trace", "set-header"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "gzip", "rustls-tls"] }
+
+# Errors / logging
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+
+# Database (same client family as honeclaw)
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-chrono-0_4", "with-uuid-1"] }
+deadpool-postgres = "0.14"
+rust_decimal = { version = "1", features = ["db-tokio-postgres", "serde-with-str"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Security
+argon2 = "0.5"
+password-hash = { version = "0.5", features = ["getrandom"] }
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+
+# Static assets & mail
+rust-embed = { version = "8", features = ["mime-guess"] }
+mime_guess = "2"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls", "hostname"] }
+
+clap = { version = "4", features = ["derive", "env"] }
+async-trait = "0.1"
+hmac = "0.12"
+chacha20poly1305 = "0.10"
+serde_yaml = "0.9"
+urlencoding = "2"
+rpassword = "7"
+
+quant-core = { path = "crates/quant-core" }
+
+[profile.dev]
+debug = 1
+incremental = false
+
+[profile.test]
+debug = 1
+incremental = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = "debuginfo"

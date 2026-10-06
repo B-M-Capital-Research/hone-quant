@@ -1,0 +1,6 @@
+[
+  {"symbol": "AAPL", "date": "2025-10-03", "adjOpen": 253.6565, "adjHigh": 258.2134, "adjLow": 252.9444, "adjClose": 256.9982, "volume": 49155614},
+  {"symbol": "AAPL", "date": "2025-10-02", "adjOpen": 255.5639, "adjHigh": 257.1576, "adjLow": 253.1436, "adjClose": 256.1118, "volume": 42630239},
+  {"symbol": "AAPL", "date": "2025-10-01", "adjOpen": 254.03, "adjHigh": 257.7652, "adjLow": 253.9205, "adjClose": 254.4384, "volume": 48713940},
+  {"symbol": "AAPL", "date": "2025-09-30", "adjOpen": 253.8458, "adjHigh": 254.9056, "adjLow": 252.1077, "adjClose": 253.6217, "volume": 37704259}
+]

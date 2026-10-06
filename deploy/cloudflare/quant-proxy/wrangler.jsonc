@@ -1,0 +1,22 @@
+// hone-quant-proxy: hone-claw.com/quant -> hone-quant on honeclaw's origin. See README.md here.
+//
+//   export CLOUDFLARE_ACCOUNT_ID=...          (token: Workers Scripts Edit + Workers Routes Edit)
+//   npx wrangler@4 deploy --var QUANT_ORIGIN_URL:"$QUANT_ORIGIN_URL"
+//   ssh <origin> "sudo sed -n 's/^HONE_QUANT_ORIGIN_TOKEN=//p' /etc/hone-quant/runtime.env" \
+//     | npx wrangler@4 secret put QUANT_ORIGIN_TOKEN
+{
+  "name": "hone-quant-proxy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-15",
+  // The account comes from CLOUDFLARE_ACCOUNT_ID, the origin from --var: neither is kept here.
+  // A route, not a Custom Domain: hone-claw.com itself stays with the Pages project and no DNS
+  // record changes. One pattern with a trailing wildcard so that /quant?x=1 matches as well (route
+  // matching includes the query string); the Worker hands /quantum and friends back to the zone.
+  "routes": [{ "pattern": "hone-claw.com/quant*", "zone_name": "hone-claw.com" }],
+  // Reachable through that route only: no *.workers.dev URL and no preview URLs.
+  "workers_dev": false,
+  "preview_urls": false,
+  // QUANT_ORIGIN_URL set in the dashboard or with --var survives a deploy without --var.
+  "keep_vars": true,
+  // QUANT_ORIGIN_TOKEN is a secret (wrangler secret put / dashboard), never a var.
+}

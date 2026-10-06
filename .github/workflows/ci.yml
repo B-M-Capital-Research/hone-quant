@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, tests)
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: hone_quant
+          POSTGRES_PASSWORD: hone_quant_ci
+          POSTGRES_DB: hone_quant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hone_quant -d hone_quant"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      CARGO_TERM_COLOR: always
+      HONE_QUANT_TEST_DATABASE_URL: postgres://hone_quant:hone_quant_ci@127.0.0.1:5432/hone_quant
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  web:
+    name: Web (typecheck, tests, build)
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build

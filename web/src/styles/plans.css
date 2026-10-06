@@ -1,0 +1,162 @@
+/* ---------------------------------------------------------------------------------------------
+ * Plans
+ * ------------------------------------------------------------------------------------------- */
+.schedule-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 10px 16px;
+  border: 1px solid var(--hone-line);
+  border-radius: var(--hone-radius-md);
+  background: var(--hone-surface-raised);
+  font-size: var(--hone-text-sm);
+}
+
+.schedule-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-xs);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.crumb:hover {
+  color: var(--hone-ink-950);
+  text-decoration: none;
+}
+
+.plan-head h1 {
+  margin: 0;
+}
+
+.stepper-card {
+  padding: 14px 18px;
+}
+
+.stepper {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px 0;
+}
+
+.step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Connector between consecutive steps. */
+.step + .step {
+  padding-left: 44px;
+}
+
+.step + .step::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--hone-line-strong);
+}
+
+.step-label {
+  font-weight: 650;
+  line-height: 22px;
+}
+
+.step-detail {
+  overflow-wrap: anywhere;
+}
+
+.step-deadline {
+  margin-left: auto;
+  align-self: center;
+  white-space: nowrap;
+}
+
+a.ticker {
+  color: var(--hone-ink-950);
+}
+
+a.ticker:hover {
+  color: var(--hone-coral-600);
+}
+
+.plan-tabs {
+  padding: 0 10px;
+}
+
+.tab-count {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--hone-paper-200);
+  color: var(--hone-ink-600);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.tab-note {
+  margin: 0;
+  padding: 12px 16px 4px;
+}
+
+.table tr.dimmed td {
+  color: var(--hone-ink-500);
+}
+
+.table tr.dimmed .ticker {
+  color: var(--hone-ink-600);
+}
+
+.audit-detail {
+  max-width: 420px;
+  overflow: hidden;
+  color: var(--hone-ink-600);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.params-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px 28px;
+}
+
+.params-group .kicker {
+  margin-bottom: 8px;
+}
+
+.params-group .kv {
+  grid-template-columns: minmax(140px, 1fr) auto;
+  gap: 6px 12px;
+  font-size: var(--hone-text-xs);
+}
+
+.params-group .kv dd {
+  text-align: right;
+  font-weight: 600;
+}
+
+.plan-kpis .kpi .delta {
+  white-space: normal;
+}

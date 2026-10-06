@@ -1,0 +1,17 @@
+# /etc/systemd/system/hone-quant-backup.service — run by hone-quant-backup.timer.
+[Unit]
+Description=hone-quant database backup (pg_dump of the hone_quant schema)
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=hone-quant
+Group=hone-quant
+EnvironmentFile=/etc/hone-quant/runtime.env
+ExecStart=/opt/hone-quant/current/scripts/backup.sh /var/backups/hone-quant
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/backups/hone-quant

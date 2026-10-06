@@ -1,0 +1,990 @@
+/* ---------------------------------------------------------------------------------------------
+ * Buttons
+ * ------------------------------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--hone-line-strong);
+  border-radius: var(--hone-radius-xs);
+  background: var(--hone-control-surface);
+  color: var(--hone-ink-950);
+  font-size: var(--hone-text-sm);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 160ms var(--hone-ease), border-color 160ms var(--hone-ease), color 160ms var(--hone-ease);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--hq-hover);
+  border-color: var(--hone-line-strong);
+}
+
+.btn:active:not(:disabled) {
+  background: var(--hq-pressed);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: var(--hone-action-bg);
+  border-color: var(--hone-action-bg);
+  color: var(--hone-action-fg);
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--hone-action-bg) 88%, var(--hone-ink-950));
+}
+
+.btn.danger {
+  color: var(--hone-signal-red-ink);
+  border-color: color-mix(in srgb, var(--hone-signal-red) 40%, transparent);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: var(--hone-signal-red-soft);
+}
+
+.btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: var(--hq-hover);
+}
+
+.btn.sm {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: var(--hone-text-xs);
+}
+
+.btn.icon {
+  width: 34px;
+  padding: 0;
+}
+
+.btn.icon.sm {
+  width: 28px;
+}
+
+.btn svg {
+  flex: none;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Form controls
+ * ------------------------------------------------------------------------------------------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field > label,
+.field-label {
+  font-size: var(--hone-text-xs);
+  font-weight: 600;
+  color: var(--hone-ink-800);
+}
+
+.field .hint {
+  font-size: var(--hone-text-xs);
+  color: var(--hone-ink-500);
+  line-height: 1.45;
+}
+
+.field .error-text {
+  font-size: var(--hone-text-xs);
+  color: var(--hone-error-600);
+}
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid var(--hone-line-strong);
+  border-radius: var(--hone-radius-xs);
+  background: var(--hone-control-surface);
+  color: var(--hone-ink-950);
+  font-size: var(--hone-text-sm);
+  transition: border-color 160ms var(--hone-ease), box-shadow 160ms var(--hone-ease);
+}
+
+.input:hover,
+.select:hover,
+.textarea:hover {
+  border-color: color-mix(in srgb, var(--hone-ink-950) 30%, transparent);
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--hone-ink-800);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hone-ink-950) 10%, transparent);
+}
+
+.input.invalid {
+  border-color: var(--hone-error-600);
+}
+
+.input.num {
+  text-align: right;
+}
+
+.textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.select {
+  appearance: none;
+  padding-right: 32px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--hone-ink-500) 50%),
+    linear-gradient(135deg, var(--hone-ink-500) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.input-group {
+  display: flex;
+  align-items: stretch;
+}
+
+.input-group .input {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.input-group .addon {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--hone-line-strong);
+  border-left: 0;
+  border-radius: 0 var(--hone-radius-xs) var(--hone-radius-xs) 0;
+  background: var(--hone-paper-100);
+  color: var(--hone-ink-600);
+  font-size: var(--hone-text-xs);
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--hone-text-sm);
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch .track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--hone-line-strong);
+  transition: background 160ms var(--hone-ease);
+  flex: none;
+}
+
+.switch .track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--hone-surface-raised);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 160ms var(--hone-ease);
+}
+
+.switch input:checked + .track {
+  background: var(--hone-signal-green);
+}
+
+.switch input:checked + .track::after {
+  transform: translateX(16px);
+}
+
+.switch input:focus-visible + .track {
+  outline: 3px solid var(--hone-focus-ring);
+  outline-offset: 2px;
+}
+
+.range {
+  width: 100%;
+  accent-color: var(--hone-coral-600);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Segmented control & tabs
+ * ------------------------------------------------------------------------------------------- */
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--hone-line);
+  border-radius: var(--hone-radius-sm);
+  background: var(--hone-paper-100);
+}
+
+.segmented button {
+  min-height: 28px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--hone-ink-600);
+  font-size: var(--hone-text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.segmented button:hover {
+  color: var(--hone-ink-950);
+}
+
+.segmented button[aria-pressed="true"],
+.segmented button.active {
+  background: var(--hone-surface-raised);
+  color: var(--hone-ink-950);
+  box-shadow: 0 1px 2px rgba(23, 32, 31, 0.08), 0 0 0 1px var(--hone-line);
+}
+
+.tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  border-bottom: 1px solid var(--hone-line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs button,
+.tabs a {
+  position: relative;
+  padding: 10px 12px 11px;
+  border: 0;
+  background: transparent;
+  color: var(--hone-ink-600);
+  font-size: var(--hone-text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.tabs button:hover,
+.tabs a:hover {
+  color: var(--hone-ink-950);
+}
+
+.tabs [aria-selected="true"],
+.tabs .active {
+  color: var(--hone-ink-950);
+}
+
+.tabs [aria-selected="true"]::after,
+.tabs .active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--hone-coral-600);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Cards
+ * ------------------------------------------------------------------------------------------- */
+.card {
+  min-width: 0;
+  border: 1px solid var(--hone-line);
+  border-radius: var(--hone-radius-md);
+  background: var(--hone-surface-raised);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--hone-line);
+}
+
+.card-head h2 {
+  font-size: var(--hone-text-md);
+  font-weight: 650;
+}
+
+.card-head .sub {
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-xs);
+}
+
+.card-body {
+  padding: 16px 18px;
+}
+
+.card-body.flush {
+  padding: 0;
+}
+
+.card-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--hone-line);
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-xs);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Chips & badges
+ * ------------------------------------------------------------------------------------------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--hone-radius-pill);
+  background: var(--hone-signal-neutral-soft);
+  color: var(--hone-signal-neutral-ink);
+  font-size: var(--hone-text-2xs);
+  font-weight: 650;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.chip .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.chip.green {
+  background: var(--hone-signal-green-soft);
+  color: var(--hone-signal-green-ink);
+}
+
+.chip.yellow {
+  background: var(--hone-signal-yellow-soft);
+  color: var(--hone-signal-yellow-ink);
+}
+
+.chip.orange {
+  background: var(--hone-signal-orange-soft);
+  color: var(--hone-signal-orange-ink);
+}
+
+.chip.red {
+  background: var(--hone-signal-red-soft);
+  color: var(--hone-signal-red-ink);
+}
+
+.chip.blue {
+  background: var(--hq-signal-blue-soft);
+  color: var(--hq-signal-blue-ink);
+}
+
+.chip.outline {
+  background: transparent;
+  border: 1px solid var(--hone-line-strong);
+  color: var(--hone-ink-600);
+}
+
+.chip.side-buy {
+  background: var(--hq-up-soft);
+  color: var(--hq-up-ink);
+}
+
+.chip.side-sell {
+  background: var(--hq-down-soft);
+  color: var(--hq-down-ink);
+}
+
+.ticker {
+  font-family: var(--hone-font-label);
+  font-weight: 700;
+  font-size: var(--hone-text-sm);
+  letter-spacing: 0.01em;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Tables
+ * ------------------------------------------------------------------------------------------- */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--hone-text-sm);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--hone-line);
+  background: var(--hone-surface-raised);
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-2xs);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.table th.sortable:hover {
+  color: var(--hone-ink-950);
+}
+
+.table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hone-line);
+  vertical-align: middle;
+}
+
+.table tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tbody tr {
+  transition: background 120ms var(--hone-ease);
+}
+
+.table tbody tr:hover td {
+  background: var(--hq-hover);
+}
+
+.table tbody tr.clickable {
+  cursor: pointer;
+}
+
+.table .r {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.table .c {
+  text-align: center;
+}
+
+.table tfoot td {
+  border-top: 1px solid var(--hone-line-strong);
+  border-bottom: 0;
+  font-weight: 650;
+}
+
+.table.compact td {
+  padding: 7px 10px;
+}
+
+.table.compact th {
+  padding: 7px 10px;
+}
+
+.name-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.name-cell .name {
+  overflow: hidden;
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+/* Weight bar: actual weight as a bar, target as a tick. */
+.weightbar {
+  position: relative;
+  width: 96px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hone-paper-200);
+}
+
+.weightbar .fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--hone-ink-600);
+}
+
+.weightbar .target {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--hone-coral-600);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * KPI tiles
+ * ------------------------------------------------------------------------------------------- */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  border: 1px solid var(--hone-line);
+  border-radius: var(--hone-radius-md);
+  background: var(--hone-surface-raised);
+  overflow: hidden;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 18px;
+  border-right: 1px solid var(--hone-line);
+  min-width: 0;
+}
+
+.kpi:last-child {
+  border-right: 0;
+}
+
+.kpi .label {
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-xs);
+  white-space: nowrap;
+}
+
+.kpi .value {
+  font-size: var(--hone-text-xl);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.kpi .value.hero {
+  font-size: var(--hone-text-2xl);
+}
+
+.kpi .label,
+.kpi .delta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kpi .delta {
+  font-size: var(--hone-text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Callouts, empty states, loading
+ * ------------------------------------------------------------------------------------------- */
+.callout {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--hone-line);
+  border-radius: var(--hone-radius-sm);
+  background: var(--hone-paper-100);
+  font-size: var(--hone-text-sm);
+  line-height: 1.5;
+}
+
+.callout.warn {
+  border-color: color-mix(in srgb, var(--hone-signal-yellow) 35%, transparent);
+  background: var(--hone-signal-yellow-soft);
+  color: var(--hone-signal-yellow-ink);
+}
+
+.callout.critical {
+  border-color: color-mix(in srgb, var(--hone-signal-red) 35%, transparent);
+  background: var(--hone-signal-red-soft);
+  color: var(--hone-signal-red-ink);
+}
+
+.callout.info {
+  border-color: color-mix(in srgb, var(--hq-signal-blue) 30%, transparent);
+  background: var(--hq-signal-blue-soft);
+  color: var(--hq-signal-blue-ink);
+}
+
+.callout.ok {
+  border-color: color-mix(in srgb, var(--hone-signal-green) 30%, transparent);
+  background: var(--hone-signal-green-soft);
+  color: var(--hone-signal-green-ink);
+}
+
+.callout strong {
+  font-weight: 650;
+}
+
+.callout > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 36px 20px;
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-sm);
+  text-align: center;
+}
+
+.empty .title {
+  color: var(--hone-ink-800);
+  font-weight: 650;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, var(--hone-coral-500) 25%, transparent);
+  border-top-color: var(--hone-coral-500);
+  border-radius: 50%;
+  animation: hq-spin 0.8s linear infinite;
+}
+
+@keyframes hq-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px;
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-sm);
+}
+
+.refetching {
+  opacity: 0.6;
+  transition: opacity 200ms var(--hone-ease);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Dialog, drawer, popover, toast
+ * ------------------------------------------------------------------------------------------- */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--hq-backdrop);
+  backdrop-filter: blur(2px);
+  animation: hq-fade 160ms var(--hone-ease);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: min(88vh, 920px);
+  border: 1px solid var(--hone-line);
+  border-radius: var(--hone-radius-lg);
+  background: var(--hone-paper-50);
+  box-shadow: var(--hone-shadow-md);
+  animation: hq-rise 200ms var(--hone-ease);
+}
+
+.dialog.wide {
+  width: min(880px, 100%);
+}
+
+.dialog-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 22px 12px;
+}
+
+.dialog-head h2 {
+  font-size: var(--hone-text-lg);
+}
+
+.dialog-body {
+  padding: 4px 22px 18px;
+  overflow-y: auto;
+}
+
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--hone-line);
+}
+
+@keyframes hq-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes hq-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+}
+
+.popover {
+  position: absolute;
+  z-index: 40;
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid var(--hone-line);
+  border-radius: var(--hone-radius-sm);
+  background: var(--hone-surface-raised);
+  box-shadow: var(--hone-shadow-md);
+  animation: hq-fade 140ms var(--hone-ease);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--hone-ink-950);
+  font-size: var(--hone-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: var(--hq-hover);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--hone-line);
+}
+
+.toasts {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100vw - 40px));
+}
+
+.toast {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--hone-line);
+  border-left: 3px solid var(--hone-ink-500);
+  border-radius: var(--hone-radius-sm);
+  background: var(--hone-surface-raised);
+  box-shadow: var(--hone-shadow-md);
+  animation: hq-rise 200ms var(--hone-ease);
+}
+
+.toast.success {
+  border-left-color: var(--hone-signal-green);
+}
+
+.toast.warning {
+  border-left-color: var(--hone-signal-yellow);
+}
+
+.toast.critical {
+  border-left-color: var(--hone-signal-red);
+}
+
+.toast .title {
+  font-weight: 650;
+  font-size: var(--hone-text-sm);
+}
+
+.toast .body {
+  color: var(--hone-ink-600);
+  font-size: var(--hone-text-xs);
+  white-space: pre-line;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Definition lists & key/value grids
+ * ------------------------------------------------------------------------------------------- */
+.kv {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) 1fr;
+  gap: 8px 16px;
+  font-size: var(--hone-text-sm);
+}
+
+.kv dt {
+  color: var(--hone-ink-500);
+}
+
+.kv dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.param {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--hone-line);
+  border-radius: var(--hone-radius-pill);
+  background: var(--hone-paper-100);
+  font-size: var(--hone-text-xs);
+}
+
+.param b {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Timeline (plan slots, history) */
+.timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.tl-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 12px;
+  padding-bottom: 18px;
+}
+
+.tl-item:last-child {
+  padding-bottom: 0;
+}
+
+.tl-item::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: 0;
+  left: 10px;
+  width: 2px;
+  background: var(--hone-line);
+}
+
+.tl-item:last-child::before {
+  display: none;
+}
+
+.tl-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--hone-line-strong);
+  border-radius: 50%;
+  background: var(--hone-surface-raised);
+  color: var(--hone-ink-500);
+}
+
+.tl-dot.done {
+  border-color: var(--hone-signal-green);
+  background: var(--hone-signal-green);
+  color: var(--hone-surface-raised);
+}
+
+.tl-dot.active {
+  border-color: var(--hone-coral-500);
+  color: var(--hone-coral-600);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--hone-coral-500) 18%, transparent);
+}
+
+.tl-dot.warn {
+  border-color: var(--hone-signal-yellow);
+  color: var(--hone-signal-yellow-ink);
+}
+
+.tl-dot.off {
+  border-style: dashed;
+}
+
+.progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hone-paper-200);
+  overflow: hidden;
+}
+
+.progress > div {
+  height: 100%;
+  background: var(--hone-coral-500);
+  transition: width 400ms var(--hone-ease);
+}

@@ -1,0 +1,20 @@
+# Optional: serve hone-quant over HTTPS on your own domain with Caddy (automatic certificates).
+# The app itself keeps listening on 127.0.0.1:8090. Set in /etc/hone-quant/runtime.env:
+#   HONE_QUANT_PUBLIC_URL=https://quant.example.com
+#   HONE_QUANT_SECURE_COOKIE=true
+# Consider restricting access further (Google IAP, Cloudflare Access or an IP allow-list):
+# hone-quant has its own sign-in, but a private desk does not need to be on the open internet.
+
+quant.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8090 {
+		# Server-sent events (live updates) must not be buffered.
+		flush_interval -1
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+	}
+	log {
+		output file /var/log/caddy/hone-quant.log
+	}
+}

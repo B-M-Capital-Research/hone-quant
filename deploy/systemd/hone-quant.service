@@ -1,0 +1,56 @@
+# /etc/systemd/system/hone-quant.service
+#
+# hone-quant on a Linux VM (written for Google Compute Engine, Debian 12 / Ubuntu 22.04+).
+# Install with scripts/install-host.sh; see docs/deployment-gce.md.
+
+[Unit]
+Description=hone-quant paper-trading desk (AI-infrastructure universe)
+Documentation=https://github.com/B-M-Capital-Research/hone-quant/blob/main/docs/deployment-gce.md
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=hone-quant
+Group=hone-quant
+# Defaults; anything set in runtime.env takes precedence.
+Environment=HONE_QUANT_STATE_DIR=/var/lib/hone-quant
+Environment=HONE_QUANT_LOG_FORMAT=json
+EnvironmentFile=/etc/hone-quant/runtime.env
+WorkingDirectory=/var/lib/hone-quant
+ExecStart=/opt/hone-quant/current/hone-quant serve
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+StateDirectory=hone-quant
+StateDirectoryMode=0700
+UMask=0077
+
+# Hardening: the service only needs outbound HTTPS (market data, notification channels),
+# PostgreSQL and its state directory (the secret key that seals channel credentials).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/hone-quant
+
+[Install]
+WantedBy=multi-user.target

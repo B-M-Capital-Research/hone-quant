@@ -1,0 +1,184 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--hone-paper-50);
+  color: var(--hone-ink-950);
+  font-family: var(--hone-font-body);
+  font-size: var(--hone-text-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:where(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
+}
+
+:where(h1, h2, h3, h4, p, figure) {
+  margin: 0;
+}
+
+h1 {
+  font-family: var(--hone-font-display);
+  font-size: var(--hone-text-xl);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--hone-text-lg);
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+h3 {
+  font-size: var(--hone-text-md);
+  font-weight: 650;
+}
+
+a {
+  color: var(--hone-link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+:focus-visible {
+  outline: 3px solid var(--hone-focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--hone-coral-500) 28%, transparent);
+}
+
+/* Utilities */
+.mono {
+  font-family: var(--hone-font-label);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--hone-ink-500);
+}
+
+.subtle {
+  color: var(--hone-ink-600);
+}
+
+.small {
+  font-size: var(--hone-text-sm);
+}
+
+.xs {
+  font-size: var(--hone-text-xs);
+}
+
+.up {
+  color: var(--hq-up-ink);
+}
+
+.down {
+  color: var(--hq-down-ink);
+}
+
+.flat {
+  color: var(--hone-ink-500);
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.row.wrap {
+  flex-wrap: wrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.kicker {
+  font-family: var(--hone-font-label);
+  font-size: var(--hone-text-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hone-ink-500);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--hone-ink-950) 16%, transparent);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}

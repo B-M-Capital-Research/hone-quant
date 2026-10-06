@@ -1,0 +1,12 @@
+target
+web/node_modules
+web/dist
+web/test-results
+web/playwright-report
+dist
+data
+.env
+.env.*
+!.env.example
+.git
+.claude

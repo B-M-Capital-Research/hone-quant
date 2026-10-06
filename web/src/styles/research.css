@@ -1,0 +1,1026 @@
+/*
+ * Research pages (backtests, backtest detail, performance). Page-scoped: every class is
+ * prefixed `rs-` and only design tokens are used.
+ */
+
+/* ---------------------------------------------------------------------------------------------
+ * Shared bits
+ * ------------------------------------------------------------------------------------------- */
+.rs-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-head-text .sub {
+  margin-top: 2px;
+}
+
+.rs-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.rs-chart {
+  width: 100%;
+  min-width: 0;
+}
+
+.rs-unreliable {
+  opacity: 0.6;
+}
+
+.rs-warn-ink {
+  color: var(--hone-signal-yellow-ink);
+}
+
+.rs-viewer-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.rs-empty-body {
+  max-width: 420px;
+}
+
+.rs-card-note {
+  margin-top: 10px;
+}
+
+.rs-chip-spinner {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: hq-spin 0.8s linear infinite;
+}
+
+.rs-btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: hq-spin 0.8s linear infinite;
+}
+
+.rs-indeterminate {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hone-paper-200);
+  overflow: hidden;
+}
+
+.rs-indeterminate > div {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  border-radius: 2px;
+  background: var(--hone-coral-500);
+  animation: rs-slide 1.4s var(--hone-ease) infinite;
+}
+
+@keyframes rs-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+
+.rs-notyet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px;
+  border-radius: var(--hone-radius-sm);
+  background: var(--hq-chart-band);
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-sm);
+  text-align: center;
+}
+
+.rs-notyet .title {
+  color: var(--hone-ink-800);
+  font-weight: 600;
+}
+
+.rs-notyet .detail {
+  font-size: var(--hone-text-xs);
+}
+
+/* KPI strips: separators survive wrapping (the outer edges are clipped by the container). */
+.rs-kpi-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rs-kpi-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px;
+}
+
+.rs-kpis {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 760px) {
+  .rs-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.rs-kpis .kpi {
+  margin: 0 -1px -1px 0;
+  border-right: 1px solid var(--hone-line);
+  border-bottom: 1px solid var(--hone-line);
+}
+
+.rs-kpis .kpi .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-kpis .kpi .delta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-ddpath {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.4;
+}
+
+.rs-ddpath > span {
+  white-space: normal;
+}
+
+/* Metrics comparison & small tables */
+.rs-series-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rs-series-key i {
+  display: inline-block;
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.rs-primary-tag {
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: var(--hone-radius-pill);
+  background: var(--hone-paper-200);
+  color: var(--hone-ink-600);
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.rs-metric-label {
+  color: var(--hone-ink-600);
+  white-space: nowrap;
+}
+
+.rs-metrics-table td:first-child,
+.rs-metrics-table th:first-child {
+  padding-left: 18px;
+}
+
+.rs-metrics-table td:last-child,
+.rs-metrics-table th:last-child {
+  padding-right: 18px;
+}
+
+.rs-yearly-table {
+  margin-top: 6px;
+}
+
+.rs-yearly-table .table th:first-child,
+.rs-yearly-table .table td:first-child {
+  padding-left: 0;
+}
+
+.rs-excess-row td {
+  border-top: 1px solid var(--hone-line);
+}
+
+/* Warnings & methodology */
+.rs-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rs-callout-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rs-symbol-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rs-symbol-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--hone-radius-pill);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: var(--hone-text-2xs);
+  line-height: 1.6;
+}
+
+.rs-symbol-pill b {
+  font-family: var(--hone-font-label);
+  font-weight: 700;
+}
+
+.rs-symbol-pill span {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.rs-method {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px 24px;
+}
+
+@media (max-width: 1279px) {
+  .rs-method {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .rs-method {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .rs-method {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.rs-method-item {
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.rs-method-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--hone-line);
+  border-radius: 9px;
+  background: var(--hone-paper-100);
+  color: var(--hone-ink-600);
+}
+
+.rs-method-title {
+  margin-bottom: 2px;
+  font-size: var(--hone-text-sm);
+  font-weight: 650;
+}
+
+.rs-method-item p {
+  color: var(--hone-ink-600);
+  font-size: var(--hone-text-xs);
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Backtest list
+ * ------------------------------------------------------------------------------------------- */
+.rs-activity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--hq-signal-blue) 30%, transparent);
+  border-radius: var(--hone-radius-sm);
+  background: var(--hq-signal-blue-soft);
+  color: var(--hq-signal-blue-ink);
+  font-size: var(--hone-text-sm);
+}
+
+.rs-activity .spinner {
+  flex: none;
+  border-color: color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+}
+
+.rs-activity-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rs-activity-text .muted {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.rs-name-cell {
+  min-width: 160px;
+  max-width: 220px;
+}
+
+.rs-name-link {
+  display: block;
+  color: var(--hone-ink-950);
+  font-weight: 650;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.rs-name-link:hover {
+  color: var(--hone-link);
+}
+
+.rs-name-meta {
+  display: block;
+  margin-top: 2px;
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-xs);
+  white-space: nowrap;
+}
+
+.rs-stack-cell > * {
+  display: block;
+}
+
+.rs-stack-cell.end {
+  text-align: right;
+}
+
+.rs-setup-cell {
+  max-width: 250px;
+}
+
+.rs-setup-cell > * {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-setup-strategy {
+  margin-top: 1px;
+}
+
+.rs-progress-cell {
+  min-width: 240px;
+}
+
+.rs-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rs-error-text {
+  display: block;
+  overflow: hidden;
+  color: var(--hone-signal-red-ink);
+  font-size: var(--hone-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Inside table cells the message takes the cell's width instead of setting it. */
+.rs-progress-cell .rs-error-text {
+  width: 0;
+  min-width: 100%;
+}
+
+.rs-error-text svg {
+  vertical-align: -2px;
+}
+
+.rs-row-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.rs-danger-icon:hover:not(:disabled) {
+  background: var(--hone-signal-red-soft);
+  color: var(--hone-signal-red-ink);
+}
+
+.rs-bt-list {
+  container-type: inline-size;
+}
+
+.rs-bt-cards {
+  display: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rs-bt-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "main actions"
+    "config config"
+    "result result";
+  gap: 8px 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--hone-line);
+  cursor: pointer;
+  transition: background 120ms var(--hone-ease);
+}
+
+.rs-bt-card:last-child {
+  border-bottom: 0;
+}
+
+.rs-bt-card:hover {
+  background: var(--hq-hover);
+}
+
+.rs-bt-card-main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rs-bt-card-head {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.rs-bt-card-config {
+  grid-area: config;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--hone-text-xs);
+}
+
+.rs-bt-card-result {
+  grid-area: result;
+  min-width: 0;
+}
+
+.rs-bt-card-actions {
+  grid-area: actions;
+  align-self: start;
+}
+
+.rs-bt-card-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.rs-bt-card-metrics dt {
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-2xs);
+  white-space: nowrap;
+}
+
+.rs-bt-card-metrics dd {
+  margin: 0;
+  font-size: var(--hone-text-sm);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.rs-row-chevron {
+  color: var(--hone-ink-500);
+}
+
+/* The full table needs ~1060px; below that the list switches to cards, which lay out as one
+ * row per run while there is room and stack on phones. */
+@container (max-width: 1059px) {
+  .rs-bt-table {
+    display: none;
+  }
+
+  .rs-bt-cards {
+    display: block;
+  }
+}
+
+@container (min-width: 720px) {
+  .rs-bt-card {
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.1fr) minmax(0, 1.5fr) auto;
+    grid-template-areas: "main config result actions";
+    align-items: center;
+    gap: 16px;
+  }
+
+  .rs-bt-card-actions {
+    align-self: center;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * New backtest dialog
+ * ------------------------------------------------------------------------------------------- */
+.rs-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.rs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--hone-line);
+}
+
+.rs-section-title {
+  color: var(--hone-ink-950);
+  font-size: var(--hone-text-sm);
+  font-weight: 650;
+}
+
+.rs-form .segmented {
+  display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.rs-form .segmented button {
+  flex: 1 1 auto;
+}
+
+.rs-form-grid {
+  display: grid;
+  gap: 14px 16px;
+}
+
+.rs-form .input-group .addon {
+  white-space: nowrap;
+}
+
+.rs-form-grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rs-form-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.rs-strategy-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--hone-line);
+  border-radius: var(--hone-radius-xs);
+  background: var(--hone-surface-raised);
+}
+
+.rs-compact-callout {
+  padding: 8px 12px;
+  font-size: var(--hone-text-xs);
+}
+
+.rs-disclosure {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--hone-ink-950);
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-disclosure-title {
+  font-size: var(--hone-text-sm);
+  font-weight: 650;
+}
+
+.rs-disclosure svg {
+  color: var(--hone-ink-500);
+}
+
+.rs-costs-summary {
+  margin-top: -4px;
+  padding-left: 24px;
+}
+
+.rs-form-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hone-line);
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-xs);
+  line-height: 1.5;
+}
+
+.rs-form-note svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+@media (max-width: 760px) {
+  .rs-form-grid.two,
+  .rs-form-grid.three {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .backdrop:has(#rs-new-backtest) {
+    align-items: flex-end;
+    padding: 8px 8px 0;
+  }
+
+  .backdrop:has(#rs-new-backtest) .dialog {
+    max-height: 94vh;
+    border-radius: var(--hone-radius-lg) var(--hone-radius-lg) 0 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Backtest detail
+ * ------------------------------------------------------------------------------------------- */
+.rs-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  margin-bottom: -6px;
+  color: var(--hone-ink-600);
+  font-size: var(--hone-text-sm);
+  font-weight: 600;
+}
+
+.rs-back:hover {
+  color: var(--hone-ink-950);
+  text-decoration: none;
+}
+
+.rs-detail-head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rs-title-block {
+  flex: 1;
+  min-width: 260px;
+}
+
+.rs-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.rs-title-row h1 {
+  overflow-wrap: anywhere;
+}
+
+.rs-config-pills .param {
+  max-width: 100%;
+}
+
+.rs-config-pills .param b {
+  font-weight: 600;
+}
+
+.rs-param-wide {
+  white-space: normal;
+}
+
+.rs-run-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 22px;
+}
+
+.rs-run-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--hone-paper-100);
+  color: var(--hone-ink-600);
+}
+
+.rs-run-spinner {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-width: 3px;
+}
+
+.rs-run-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rs-run-text h2 {
+  font-size: var(--hone-text-md);
+}
+
+.rs-error-code {
+  display: block;
+  padding: 8px 10px;
+  border-radius: var(--hone-radius-xs);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font-family: var(--hone-font-label);
+  font-size: var(--hone-text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Tables */
+.rs-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--hone-line);
+}
+
+.rs-filter-select {
+  width: auto;
+  min-width: 180px;
+  max-width: 280px;
+}
+
+.rs-pager {
+  flex-wrap: wrap;
+}
+
+.rs-sector-cell {
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--hone-ink-600);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-bar-cell {
+  width: 120px;
+}
+
+.rs-more-row td {
+  padding: 0 !important;
+}
+
+.rs-more-row button {
+  width: 100%;
+  border-radius: 0;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Performance
+ * ------------------------------------------------------------------------------------------- */
+.rs-range-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.rs-milestones {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rs-milestones li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.rs-milestone-dot {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border: 2px solid var(--hone-line-strong);
+  border-radius: 50%;
+}
+
+.rs-milestones li.done .rs-milestone-dot {
+  border-color: var(--hone-signal-green);
+  background: var(--hone-signal-green);
+  color: var(--hone-surface-raised);
+}
+
+.rs-milestone-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--hone-text-sm);
+}
+
+.rs-milestones li.done .progress > div {
+  background: var(--hone-signal-green);
+}
+
+.rs-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 24px;
+  margin: 0;
+}
+
+.rs-stat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--hone-line);
+}
+
+.rs-stat dt {
+  color: var(--hone-ink-600);
+  font-size: var(--hone-text-sm);
+}
+
+.rs-stat dd {
+  margin: 0;
+  font-size: var(--hone-text-sm);
+  font-weight: 650;
+  text-align: right;
+}
+
+.rs-stat-hint {
+  grid-column: 1 / -1;
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-2xs);
+}
+
+@media (max-width: 760px) {
+  .rs-range-block {
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .rs-range-block .segmented {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .rs-filter-select {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .rs-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rs-run-state {
+    padding: 16px;
+  }
+}
+
+.rs-inline-name {
+  white-space: nowrap;
+}
+
+.rs-inline-name .ticker {
+  margin-right: 6px;
+}
+
+.rs-inline-name .muted {
+  display: inline-block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.rs-weight-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.rs-mini-bar {
+  display: block;
+  width: 56px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--hone-paper-200);
+  overflow: hidden;
+}
+
+.rs-mini-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--hone-ink-600);
+}
+
+.rs-config-pills .param > span {
+  flex: none;
+  white-space: nowrap;
+}
+
+.rs-yearly-table .table th:first-child,
+.rs-yearly-table .table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--hone-surface-raised);
+}
+
+/* Wide charts keep their labels on phones and scroll sideways inside the card instead. */
+.rs-scroll-x {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.rs-scroll-x > .rs-chart {
+  min-width: 600px;
+}
+
+.rs-milestone-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rs-milestone-bar .progress {
+  flex: 1;
+}
+
+.rs-milestone-bar span {
+  flex: none;
+  min-width: 56px;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .rs-kpis .kpi .delta {
+    white-space: normal;
+  }
+}
