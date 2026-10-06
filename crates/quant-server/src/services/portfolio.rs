@@ -258,8 +258,7 @@ pub async fn apply_corporate_actions(state: &Arc<AppState>, date: NaiveDate) -> 
         }
         let qty_before = position.qty;
         let mut cash_amount = Decimal::ZERO;
-        let detail;
-        if action.kind == "split" {
+        let detail = if action.kind == "split" {
             let ratio = action.ratio.unwrap_or(1.0);
             if !(ratio > 0.0) || (ratio - 1.0).abs() < 1e-9 {
                 continue;
@@ -267,10 +266,10 @@ pub async fn apply_corporate_actions(state: &Arc<AppState>, date: NaiveDate) -> 
             let ratio_d = dec(ratio, 8);
             position.qty = (position.qty * ratio_d).round_dp(6);
             position.avg_cost = (position.avg_cost / ratio_d).round_dp(6);
-            detail = format!(
+            format!(
                 "{} {}-for-1: {} → {} shares",
                 action.ex_date, ratio, qty_before, position.qty
-            );
+            )
         } else {
             let amount = action.amount.unwrap_or(0.0);
             if !(amount > 0.0) {
@@ -289,11 +288,11 @@ pub async fn apply_corporate_actions(state: &Arc<AppState>, date: NaiveDate) -> 
                 &format!("{} × ${amount}", position.qty),
             )
             .await?;
-            detail = format!(
+            format!(
                 "{} ${amount}/share × {} = ${}",
                 action.ex_date, position.qty, cash_amount
-            );
-        }
+            )
+        };
         trading::save_position(&tx, account.id, &position).await?;
         tx.execute(
             "INSERT INTO corporate_action_applications (account_id, action_id, qty_before, qty_after, cash_amount) VALUES ($1, $2, $3, $4, $5)",
