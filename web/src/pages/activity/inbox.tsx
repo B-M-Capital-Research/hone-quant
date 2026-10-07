@@ -338,6 +338,14 @@ function Item(props: { row: NotificationRow; fresh: boolean; onRead: (row: Notif
         <div class="ntf-meta">
           <SeverityChip severity={row.severity} />
           <span class="chip outline">{categoryLabel(row.category)}</span>
+          <Show when={row.portfolio_name}>
+            {(name) => (
+              <span class="chip outline ntf-portfolio" title={tpl(n().inbox.portfolio_hint, { name: name() })}>
+                <Icon name="briefcase" size={11} />
+                <span class="truncate">{name()}</span>
+              </span>
+            )}
+          </Show>
           <Deliveries row={row} />
           <span class="spacer" />
           <Show when={row.read_at}>

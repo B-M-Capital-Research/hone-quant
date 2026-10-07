@@ -53,6 +53,21 @@
   background: var(--hone-signal-red-soft);
 }
 
+/* Confirms a destructive action inside a dialog. */
+.btn.danger.solid {
+  border-color: var(--hone-signal-red);
+  background: var(--hone-signal-red);
+  color: var(--hone-action-fg);
+}
+
+.btn.danger.solid:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--hone-signal-red) 88%, var(--hone-ink-950));
+}
+
+:root[data-theme="dark"] .btn.danger.solid {
+  color: var(--hone-paper-50);
+}
+
 .btn.ghost {
   border-color: transparent;
   background: transparent;

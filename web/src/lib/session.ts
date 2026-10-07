@@ -65,9 +65,14 @@ export function signedOut() {
   setMe(null);
 }
 
+let marketSeq = 0;
+
 export async function refreshMarket() {
+  // The market view belongs to the current portfolio: a slow answer for a previous one is dropped.
+  const seq = ++marketSeq;
   try {
     const value = await api.market();
+    if (seq !== marketSeq) return;
     setMarket(value);
     setOffsetMs(new Date(value.now).getTime() - Date.now());
   } catch {

@@ -7,6 +7,7 @@ import { common } from "@/i18n/common";
 import { strategyText } from "@/i18n/strategy";
 import { api } from "@/lib/api";
 import { fmtDateTime, fmtDual } from "@/lib/format";
+import { canTrade, currentPortfolio } from "@/lib/portfolio";
 import { isAdmin, serverNow } from "@/lib/session";
 import type { StrategyOverview, StrategyParams, StrategyVersion, UniverseView } from "@/lib/types";
 import { ParamEditor, fieldDomId } from "./ParamEditor";
@@ -14,7 +15,7 @@ import { PreviewPanel } from "./PreviewPanel";
 import { cleanParams, fieldForIssue, getPath, sameParams, withDefaults } from "./params";
 import { fieldText, fmtParam, issueText, pickText, presetName } from "./format";
 import { activationBody, backtestHref } from "./shared";
-import type { Source, Workbench } from "./workbench";
+import type { Source, Workbench } from "./workbench-state";
 import { actorName, strategyName } from "@/lib/names";
 
 /** All starting points: the active version, every saved version and every preset. */
@@ -267,21 +268,23 @@ export function WorkbenchView(props: {
           </Show>
           {t().actions.preview}
         </button>
-        <button
-          class="btn primary"
-          onClick={() => {
-            if (wb.clientIssues().length) {
-              toast(t().workbench.fix_first, undefined, "warning");
-              scrollToField(wb.clientIssues()[0].path);
-              return;
-            }
-            setSaveOpen(true);
-          }}
-          disabled={!isAdmin() || !wb.draft() || saving()}
-          title={isAdmin() ? undefined : t().save.viewer}
-        >
-          {t().actions.save_version}
-        </button>
+        {/* Versions belong to the shared library, which only administrators extend. */}
+        <Show when={isAdmin()}>
+          <button
+            class="btn primary"
+            onClick={() => {
+              if (wb.clientIssues().length) {
+                toast(t().workbench.fix_first, undefined, "warning");
+                scrollToField(wb.clientIssues()[0].path);
+                return;
+              }
+              setSaveOpen(true);
+            }}
+            disabled={!wb.draft() || saving()}
+          >
+            {t().actions.save_version}
+          </button>
+        </Show>
       </div>
 
       <section class="card" ref={previewCard}>
@@ -374,7 +377,8 @@ function SaveDialog(props: {
   const [name, setName] = createSignal(saveState.name);
   const [note, setNote] = createSignal(saveState.note);
   const [presetId, setPresetId] = createSignal(saveState.presetId || src()?.presetId || "custom");
-  const [activate, setActivate] = createSignal(saveState.activate);
+  // Activating applies to the current portfolio only, and needs the right to trade it.
+  const [activate, setActivate] = createSignal(saveState.activate && canTrade());
   const [nameError, setNameError] = createSignal(false);
 
   const params = () => cleanParams(wb.draft() as StrategyParams);
@@ -530,17 +534,19 @@ function SaveDialog(props: {
           </div>
         </Show>
 
-        <div class="st-activate-box" classList={{ on: activate() }}>
-          <label class="row" style={{ gap: "10px", cursor: "pointer", "align-items": "flex-start" }}>
-            <input type="checkbox" checked={activate()} onChange={(e) => setActivate(e.currentTarget.checked)} style={{ "margin-top": "3px" }} />
-            <span>
-              <strong class="small">{t().save.activate}</strong>
-              <span class="xs muted" style={{ display: "block" }}>
-                {t().save.activate_hint}
+        <Show when={canTrade()}>
+          <div class="st-activate-box" classList={{ on: activate() }}>
+            <label class="row" style={{ gap: "10px", cursor: "pointer", "align-items": "flex-start" }}>
+              <input type="checkbox" checked={activate()} onChange={(e) => setActivate(e.currentTarget.checked)} style={{ "margin-top": "3px" }} />
+              <span>
+                <strong class="small">{t().save.activate}</strong>
+                <span class="xs muted" style={{ display: "block" }}>
+                  {tpl(t().save.activate_hint, { name: currentPortfolio()?.name ?? "" })}
+                </span>
               </span>
-            </span>
-          </label>
-        </div>
+            </label>
+          </div>
+        </Show>
       </div>
     </Dialog>
   );

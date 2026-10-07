@@ -14,6 +14,8 @@ pub mod notify;
 pub mod services;
 pub mod state;
 pub mod store;
+#[cfg(test)]
+pub mod testkit;
 pub mod universe;
 pub mod web;
 

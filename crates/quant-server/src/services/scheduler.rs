@@ -14,6 +14,10 @@
 //! - close −5 min: execution cut-off; unexecuted plans expire;
 //! - close +15 min: refresh today's bars; closing NAV snapshot; daily summary at +20 min;
 //! - last session of the week, close +30 min: weekly report.
+//!
+//! Plan slots, executions, risk checks, snapshots and reports run for every active portfolio;
+//! their job keys carry the portfolio (`<date>:p<id>`), so one portfolio's failure is retried
+//! without repeating another's work.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -30,9 +34,8 @@ use crate::notify::{self, Event};
 use crate::services::reminders::{self, Schedule};
 use crate::services::{broker, marketdata, planner, portfolio};
 use crate::state::AppState;
-use crate::store::settings::{
-    self, AutomationMode, AutomationSettings, ExecutionSettings, RiskSettings,
-};
+use crate::store::portfolios::{self, Book};
+use crate::store::settings::{self, AutomationMode, ExecutionSettings, RiskSettings};
 use crate::store::strategy as strategy_store;
 use crate::store::{market, system, trading};
 
@@ -186,8 +189,8 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
 
     let client = state.pool.get().await?;
     let execution: ExecutionSettings = settings::get(&client, settings::EXECUTION).await?;
-    let automation: AutomationSettings = settings::get(&client, settings::AUTOMATION).await?;
     let schedule = settings::schedule(&client).await?;
+    let books = portfolios::active_books(&client).await?;
     drop(client);
     let session_open = session.is_some_and(|s| s.contains(now));
 
@@ -232,13 +235,20 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
         if let Some(Schedule::PreOpen { minutes_before }) = pre_open
             && now >= session.open - Duration::minutes(minutes_before)
             && now < session.open
+            && !books.is_empty()
         {
             let s = state.clone();
             let slots: Vec<(String, DateTime<Utc>)> = day_schedule(&session, &schedule)
                 .iter()
                 .map(|slot| (slot.slot.as_str().to_string(), slot.generate_at))
                 .collect();
-            let mode = automation.effective_mode(now).as_str().to_string();
+            let modes: Vec<(String, String)> = books
+                .iter()
+                .map(|b| {
+                    let mode = b.portfolio.automation.effective_mode(now);
+                    (b.portfolio.name.clone(), mode.as_str().to_string())
+                })
+                .collect();
             let _ = once(state, "reminder_pre_open", &key, || async move {
                 notify::notify(
                     &s,
@@ -246,7 +256,7 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
                         trade_date: today,
                         open_at: session.open,
                         slots,
-                        mode,
+                        modes,
                     },
                 )
                 .await?;
@@ -255,193 +265,135 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
             .await;
         }
 
-        // Plan slots.
+        // Plan slots, per portfolio.
+        for book in &books {
+            plan_slots(state, book, &session, &schedule, today, now).await?;
+        }
+
+        // Automatic execution of due plans (any portfolio).
         let client = state.pool.get().await?;
-        let account = trading::active_account(&client).await?;
+        let open_plans = trading::open_plans_all(&client).await?;
+        let review = reminders::builtin(&client, reminders::PLAN_REVIEW).await?;
         drop(client);
-        if let Some(account) = account {
-            for slot in day_schedule(&session, &schedule) {
-                let slot_name = slot.slot.as_str();
-                if now < slot.generate_at {
-                    continue;
+        for plan in open_plans.iter().filter(|p| p.status == "pending") {
+            if let Some(at) = plan.execute_after
+                && now >= at
+                && now < plan.deadline
+                && session_open
+            {
+                if let Err(error) = broker::execute_plan(state, plan.id, "scheduler").await {
+                    tracing::warn!(plan = plan.id, error = %format!("{error:#}"), "automatic execution failed");
                 }
-                let client = state.pool.get().await?;
-                let existing =
-                    trading::plan_for_slot(&client, account.id, today, slot_name).await?;
-                let skipped = strategy_store::is_slot_skipped(&client, today, slot_name).await?;
-                drop(client);
-                if existing.is_some() {
-                    continue;
-                }
-                // Never generate a slot late: once its window has passed (for the opening plan,
-                // three hours after the open) the slot is recorded as missed or failed.
-                if now >= slot.generation_closes() {
-                    let client = state.pool.get().await?;
-                    let failed = system::job_runs(&client, Some("plan"), 20)
-                        .await?
-                        .into_iter()
-                        .any(|r| {
-                            r.run_key == format!("{today}:{slot_name}") && r.status == "failed"
-                        });
-                    drop(client);
-                    let reason = if failed { "error" } else { "missed" };
-                    planner::record_skipped_slot(
+                continue;
+            }
+            // Review nudge before the automatic execution or the approval deadline.
+            if let Some(Schedule::BeforeDeadline { minutes_before }) = &review {
+                let due = plan.execute_after.unwrap_or(plan.deadline);
+                let window = Duration::minutes(*minutes_before);
+                // Only when the review window is long enough for a nudge to be useful.
+                if now < due
+                    && now >= due - window
+                    && (due - plan.generated_at) > Duration::minutes(5)
+                    && let Some(book) = books.iter().find(|b| b.account.id == plan.account_id)
+                {
+                    let s = state.clone();
+                    let tag = book.portfolio.tag();
+                    let (plan_id, slot, automatic) =
+                        (plan.id, plan.slot.clone(), plan.execute_after.is_some());
+                    let _ = once(
                         state,
-                        today,
-                        slot_name,
-                        reason,
-                        slot.execute_deadline,
-                    )
-                    .await?;
-                    continue;
-                }
-                if skipped.is_some() {
-                    planner::record_skipped_slot(
-                        state,
-                        today,
-                        slot_name,
-                        "operator",
-                        slot.execute_deadline,
-                    )
-                    .await?;
-                    continue;
-                }
-                if automation.effective_mode(now) == AutomationMode::Paused {
-                    planner::record_skipped_slot(
-                        state,
-                        today,
-                        slot_name,
-                        "paused",
-                        slot.execute_deadline,
-                    )
-                    .await?;
-                    continue;
-                }
-                let s = state.clone();
-                let run_key = format!("{today}:{slot_name}");
-                let deadline = slot.execute_deadline;
-                let _ = once(state, "plan", &run_key, || async move {
-                    let generated = planner::generate(
-                        &s,
-                        planner::PlanRequest {
-                            slot: slot_name.to_string(),
-                            trade_date: today,
-                            deadline,
-                            actor: "scheduler".into(),
+                        "reminder_plan_review",
+                        &plan.id.to_string(),
+                        || async move {
+                            notify::notify_in(
+                                &s,
+                                &tag,
+                                Event::PlanReview {
+                                    plan_id,
+                                    slot,
+                                    due,
+                                    automatic,
+                                },
+                            )
+                            .await?;
+                            Ok(json!({}))
                         },
                     )
-                    .await?;
-                    Ok(serde_json::to_value(generated)?)
-                })
-                .await;
-            }
-
-            // Automatic execution of due plans.
-            let client = state.pool.get().await?;
-            let open_plans = trading::open_plans(&client, account.id).await?;
-            let review = reminders::builtin(&client, reminders::PLAN_REVIEW).await?;
-            drop(client);
-            for plan in open_plans.iter().filter(|p| p.status == "pending") {
-                if let Some(at) = plan.execute_after
-                    && now >= at
-                    && now < plan.deadline
-                    && session_open
-                {
-                    if let Err(error) = broker::execute_plan(state, plan.id, "scheduler").await {
-                        tracing::warn!(plan = plan.id, error = %format!("{error:#}"), "automatic execution failed");
-                    }
-                    continue;
-                }
-                // Review nudge before the automatic execution or the approval deadline.
-                if let Some(Schedule::BeforeDeadline { minutes_before }) = &review {
-                    let due = plan.execute_after.unwrap_or(plan.deadline);
-                    let window = Duration::minutes(*minutes_before);
-                    // Only when the review window is long enough for a nudge to be useful.
-                    if now < due
-                        && now >= due - window
-                        && (due - plan.generated_at) > Duration::minutes(5)
-                    {
-                        let s = state.clone();
-                        let (plan_id, slot, automatic) =
-                            (plan.id, plan.slot.clone(), plan.execute_after.is_some());
-                        let _ = once(
-                            state,
-                            "reminder_plan_review",
-                            &plan.id.to_string(),
-                            || async move {
-                                notify::notify(
-                                    &s,
-                                    Event::PlanReview {
-                                        plan_id,
-                                        slot,
-                                        due,
-                                        automatic,
-                                    },
-                                )
-                                .await?;
-                                Ok(json!({}))
-                            },
-                        )
-                        .await;
-                    }
+                    .await;
                 }
             }
-            broker::expire_overdue(state).await?;
+        }
+        broker::expire_overdue(state).await?;
 
-            // Risk checks every five minutes during the session.
-            if session_open
-                && ls
-                    .last_risk_check
-                    .is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(300))
-            {
-                ls.last_risk_check = Some(Instant::now());
-                risk_checks(state, today).await?;
+        // Risk checks every five minutes during the session.
+        if session_open
+            && ls
+                .last_risk_check
+                .is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(300))
+        {
+            ls.last_risk_check = Some(Instant::now());
+            for book in books.iter().filter(|b| trades_on(b, today)) {
+                risk_checks(state, book, today).await?;
             }
+            data_staleness(state).await?;
+        }
 
-            // After the close: today's bars, closing snapshot, daily summary.
-            if now >= session.close + Duration::minutes(15) {
+        // After the close: today's bars, closing snapshots, daily summaries.
+        if now >= session.close + Duration::minutes(15) {
+            let s = state.clone();
+            let _ = once(state, "postclose_sync", &key, || async move {
+                let report = marketdata::sync_daily(&s, 5, false).await?;
+                Ok(json!({"bars": report.bars, "failed": report.failed}))
+            })
+            .await;
+            for book in books.iter().filter(|b| trades_on(b, today)) {
                 let s = state.clone();
-                let _ = once(state, "postclose_sync", &key, || async move {
-                    let report = marketdata::sync_daily(&s, 5, false).await?;
-                    Ok(json!({"bars": report.bars, "failed": report.failed}))
-                })
-                .await;
-                let s = state.clone();
-                let snapped = once(state, "eod_snapshot", &key, || async move {
-                    let nav = portfolio::snapshot_eod(&s, today).await?;
-                    Ok(json!({"nav": nav}))
-                })
+                let account_id = book.account.id;
+                let snapped = once(
+                    state,
+                    "eod_snapshot",
+                    &book_key(&key, book),
+                    || async move {
+                        let nav = portfolio::snapshot_eod(&s, account_id, today).await?;
+                        Ok(json!({"nav": nav}))
+                    },
+                )
                 .await
                 .unwrap_or(false);
                 if snapped {
                     state.emit(crate::state::ServerEvent::Account {
                         reason: "eod".into(),
+                        portfolio_id: book.portfolio.id,
                     });
                 }
             }
-            let client = state.pool.get().await?;
-            let daily = reminders::builtin(&client, reminders::DAILY_SUMMARY).await?;
-            let weekly = reminders::builtin(&client, reminders::WEEKLY_REPORT).await?;
-            drop(client);
+        }
+        let client = state.pool.get().await?;
+        let daily = reminders::builtin(&client, reminders::DAILY_SUMMARY).await?;
+        let weekly = reminders::builtin(&client, reminders::WEEKLY_REPORT).await?;
+        drop(client);
+        let last_of_week = state.calendar.next_trading_day(today).iso_week() != today.iso_week();
+        for book in books.iter().filter(|b| trades_on(b, today)) {
+            let job_key = book_key(&key, book);
             if let Some(Schedule::PostClose { minutes_after }) = daily
                 && now >= session.close + Duration::minutes(minutes_after.max(16))
             {
                 let s = state.clone();
-                let _ = once(state, "reminder_daily_summary", &key, || async move {
-                    daily_summary(&s, today).await?;
+                let book = book.clone();
+                let _ = once(state, "reminder_daily_summary", &job_key, || async move {
+                    daily_summary(&s, &book, today).await?;
                     Ok(json!({}))
                 })
                 .await;
             }
-            let last_of_week =
-                state.calendar.next_trading_day(today).iso_week() != today.iso_week();
             if let Some(Schedule::WeekClose { minutes_after }) = weekly
                 && last_of_week
                 && now >= session.close + Duration::minutes(minutes_after.max(16))
             {
                 let s = state.clone();
-                let _ = once(state, "reminder_weekly_report", &key, || async move {
-                    weekly_report(&s, today).await?;
+                let book = book.clone();
+                let _ = once(state, "reminder_weekly_report", &job_key, || async move {
+                    weekly_report(&s, &book, today).await?;
                     Ok(json!({}))
                 })
                 .await;
@@ -456,20 +408,130 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
     Ok(())
 }
 
-async fn risk_checks(state: &Arc<AppState>, today: NaiveDate) -> Result<()> {
+/// Job key of a portfolio's daily job.
+fn book_key(day_key: &str, book: &Book) -> String {
+    format!("{day_key}:p{}", book.portfolio.id)
+}
+
+/// A portfolio opened after a session's close starts with the next session: until then it has
+/// no plans, snapshots, alerts or reports.
+fn trades_on(book: &Book, day: NaiveDate) -> bool {
+    day >= book.account.inception_date
+}
+
+/// Generates (or records why not) each of today's plan slots that is due for one portfolio.
+async fn plan_slots(
+    state: &Arc<AppState>,
+    book: &Book,
+    session: &quant_core::calendar::Session,
+    schedule: &quant_core::schedule::ScheduleSettings,
+    today: NaiveDate,
+    now: DateTime<Utc>,
+) -> Result<()> {
+    let portfolio_id = book.portfolio.id;
+    if !trades_on(book, today) {
+        return Ok(());
+    }
+    for slot in day_schedule(session, schedule) {
+        let slot_name = slot.slot.as_str();
+        if now < slot.generate_at {
+            continue;
+        }
+        // A slot that was over before this account was opened (a new portfolio, or a reset in
+        // the middle of the day) was never this account's to miss.
+        if slot.generation_closes() <= book.account.created_at {
+            continue;
+        }
+        let run_key = format!("{today}:{slot_name}:p{portfolio_id}");
+        let client = state.pool.get().await?;
+        let existing = trading::plan_for_slot(&client, book.account.id, today, slot_name).await?;
+        let skipped =
+            strategy_store::is_slot_skipped(&client, portfolio_id, today, slot_name).await?;
+        drop(client);
+        if existing.is_some() {
+            continue;
+        }
+        // Never generate a slot late: once its window has passed (for the opening plan, three
+        // hours after the open) the slot is recorded as missed or failed.
+        if now >= slot.generation_closes() {
+            let client = state.pool.get().await?;
+            let failed = system::job_runs(&client, Some("plan"), 50)
+                .await?
+                .into_iter()
+                .any(|r| r.run_key == run_key && r.status == "failed");
+            drop(client);
+            let reason = if failed { "error" } else { "missed" };
+            planner::record_skipped_slot(
+                state,
+                portfolio_id,
+                today,
+                slot_name,
+                reason,
+                slot.execute_deadline,
+            )
+            .await?;
+            continue;
+        }
+        if skipped.is_some() {
+            planner::record_skipped_slot(
+                state,
+                portfolio_id,
+                today,
+                slot_name,
+                "operator",
+                slot.execute_deadline,
+            )
+            .await?;
+            continue;
+        }
+        if book.portfolio.automation.effective_mode(now) == AutomationMode::Paused {
+            planner::record_skipped_slot(
+                state,
+                portfolio_id,
+                today,
+                slot_name,
+                "paused",
+                slot.execute_deadline,
+            )
+            .await?;
+            continue;
+        }
+        let s = state.clone();
+        let deadline = slot.execute_deadline;
+        let _ = once(state, "plan", &run_key, || async move {
+            let generated = planner::generate(
+                &s,
+                portfolio_id,
+                planner::PlanRequest {
+                    slot: slot_name.to_string(),
+                    trade_date: today,
+                    deadline,
+                    actor: "scheduler".into(),
+                },
+            )
+            .await?;
+            Ok(serde_json::to_value(generated)?)
+        })
+        .await;
+    }
+    Ok(())
+}
+
+async fn risk_checks(state: &Arc<AppState>, book: &Book, today: NaiveDate) -> Result<()> {
     let client = state.pool.get().await?;
     let risk: RiskSettings = settings::get(&client, settings::RISK).await?;
-    let valuation = portfolio::valuation(state, &client).await?;
-    let quotes = market::quotes(&client).await?;
+    let valuation = portfolio::valuation(state, &client, &book.account).await?;
     drop(client);
-    let key = today.to_string();
+    let key = book_key(&today.to_string(), book);
     if valuation.drawdown <= -risk.drawdown_alert {
         let s = state.clone();
+        let tag = book.portfolio.tag();
         let drawdown = valuation.drawdown;
         let threshold = risk.drawdown_alert;
         let _ = once(state, "risk_drawdown", &key, || async move {
-            notify::notify(
+            notify::notify_in(
                 &s,
+                &tag,
                 Event::DrawdownAlert {
                     drawdown,
                     threshold,
@@ -484,10 +546,12 @@ async fn risk_checks(state: &Arc<AppState>, today: NaiveDate) -> Result<()> {
         && day <= -risk.daily_loss_alert
     {
         let s = state.clone();
+        let tag = book.portfolio.tag();
         let threshold = risk.daily_loss_alert;
         let _ = once(state, "risk_daily_loss", &key, || async move {
-            notify::notify(
+            notify::notify_in(
                 &s,
+                &tag,
                 Event::DailyLossAlert {
                     loss: day,
                     threshold,
@@ -498,6 +562,14 @@ async fn risk_checks(state: &Arc<AppState>, today: NaiveDate) -> Result<()> {
         })
         .await;
     }
+    Ok(())
+}
+
+/// Warns (at most hourly) when quotes stopped arriving during the session.
+async fn data_staleness(state: &Arc<AppState>) -> Result<()> {
+    let client = state.pool.get().await?;
+    let quotes = market::quotes(&client).await?;
+    drop(client);
     let newest = quotes.values().map(|q| q.fetched_at).max();
     if let Some(newest) = newest {
         let minutes = (state.now() - newest).num_minutes();
@@ -514,13 +586,13 @@ async fn risk_checks(state: &Arc<AppState>, today: NaiveDate) -> Result<()> {
     Ok(())
 }
 
-async fn daily_summary(state: &Arc<AppState>, date: NaiveDate) -> Result<()> {
+async fn daily_summary(state: &Arc<AppState>, book: &Book, date: NaiveDate) -> Result<()> {
     let client = state.pool.get().await?;
-    let valuation = portfolio::valuation(state, &client).await?;
+    let valuation = portfolio::valuation(state, &client, &book.account).await?;
     let start = date.and_hms_opt(0, 0, 0).expect("midnight").and_utc() - Duration::hours(12);
     let (fills, _) = trading::list_fills(
         &client,
-        valuation.account.id,
+        book.account.id,
         &trading::FillFilter {
             symbol: None,
             from: Some(start),
@@ -538,8 +610,9 @@ async fn daily_summary(state: &Arc<AppState>, date: NaiveDate) -> Result<()> {
         .filter_map(|p| p.day_change_pct.map(|c| (p.symbol.clone(), c)))
         .collect();
     movers.sort_by(|a, b| b.1.total_cmp(&a.1));
-    notify::notify(
+    notify::notify_in(
         state,
+        &book.portfolio.tag(),
         Event::DailySummary {
             date,
             nav: valuation.nav,
@@ -555,8 +628,8 @@ async fn daily_summary(state: &Arc<AppState>, date: NaiveDate) -> Result<()> {
     Ok(())
 }
 
-async fn weekly_report(state: &Arc<AppState>, date: NaiveDate) -> Result<()> {
-    let perf = portfolio::performance(state, None).await?;
+async fn weekly_report(state: &Arc<AppState>, book: &Book, date: NaiveDate) -> Result<()> {
+    let perf = portfolio::performance(state, &book.account, None).await?;
     let week_start = date - Duration::days(date.weekday().num_days_from_monday() as i64 + 1);
     let base = perf
         .dates
@@ -569,14 +642,13 @@ async fn weekly_report(state: &Arc<AppState>, date: NaiveDate) -> Result<()> {
         .unwrap_or(0.0);
     let last = perf.nav.last().copied().unwrap_or(0.0);
     let client = state.pool.get().await?;
-    let account = trading::require_active_account(&client).await?;
     let from = (week_start + Duration::days(1))
         .and_hms_opt(0, 0, 0)
         .expect("midnight")
         .and_utc();
     let (_, trades) = trading::list_fills(
         &client,
-        account.id,
+        book.account.id,
         &trading::FillFilter {
             symbol: None,
             from: Some(from),
@@ -588,8 +660,9 @@ async fn weekly_report(state: &Arc<AppState>, date: NaiveDate) -> Result<()> {
     )
     .await?;
     drop(client);
-    notify::notify(
+    notify::notify_in(
         state,
+        &book.portfolio.tag(),
         Event::WeeklyReport {
             week_end: date,
             week_return: if base > 0.0 { last / base - 1.0 } else { 0.0 },
@@ -629,4 +702,115 @@ async fn fire_custom_reminders(state: &Arc<AppState>, now: DateTime<Utc>) -> Res
         .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+
+    use super::*;
+    use crate::services::bootstrap;
+    use crate::services::portfolio_tests::open;
+    use crate::testkit;
+
+    #[tokio::test]
+    async fn every_active_portfolio_gets_its_own_slots() {
+        // Monday 2026-10-05, 11:00 New York: the opening slot is due, the pre-close one is not.
+        let now = Utc.with_ymd_and_hms(2026, 10, 5, 15, 0, 0).unwrap();
+        let Some((db, state)) = testkit::state_at(now).await else {
+            eprintln!("skipped: HONE_QUANT_TEST_DATABASE_URL not set");
+            return;
+        };
+        let today = MarketCalendar::local_date(now);
+        bootstrap::run(&state).await.unwrap();
+        marketdata::sync_daily(&state, 7, false).await.unwrap();
+        marketdata::poll_quotes(&state).await.unwrap();
+        let paused = open(&state, "Paused", None, AutomationMode::Paused, 100_000).await;
+        let skipping = open(&state, "Skipping", None, AutomationMode::Auto, 100_000).await;
+        let gone = open(&state, "Gone", None, AutomationMode::Auto, 100_000).await;
+        let tomorrow = open(&state, "Tomorrow", None, AutomationMode::Auto, 100_000).await;
+        let late = open(&state, "Late", None, AutomationMode::Auto, 100_000).await;
+        let client = state.pool.get().await.unwrap();
+        // Opened after today's close: its first session is the next one.
+        client
+            .execute(
+                "UPDATE accounts SET inception_date = $2 WHERE id = $1",
+                &[
+                    &tomorrow.account.id,
+                    &state.calendar.next_trading_day(today),
+                ],
+            )
+            .await
+            .unwrap();
+        // Opened after the opening slot's window closed (16:30 UTC).
+        client
+            .execute(
+                "UPDATE accounts SET created_at = '2026-10-05T16:45:00Z' WHERE id = $1",
+                &[&late.account.id],
+            )
+            .await
+            .unwrap();
+        strategy_store::skip_slot(&client, skipping.portfolio.id, today, "open", "", "admin")
+            .await
+            .unwrap();
+        trading::archive_account(&client, gone.account.id)
+            .await
+            .unwrap();
+        portfolios::archive(&client, gone.portfolio.id, "admin")
+            .await
+            .unwrap();
+        let books = portfolios::active_books(&client).await.unwrap();
+        let schedule = settings::schedule(&client).await.unwrap();
+        drop(client);
+        assert_eq!(books.len(), 5, "the archived portfolio is not scheduled");
+        let session = state.calendar.session(today).unwrap();
+        for book in &books {
+            plan_slots(&state, book, &session, &schedule, today, now)
+                .await
+                .unwrap();
+        }
+
+        let client = state.pool.get().await.unwrap();
+        let slot = |book: &Book| {
+            let account_id = book.account.id;
+            let client = &client;
+            async move {
+                let plans = trading::plans_for_date(client, account_id, today)
+                    .await
+                    .unwrap();
+                assert_eq!(plans.len(), 1, "one opening plan, no pre-close plan yet");
+                plans.into_iter().next().unwrap()
+            }
+        };
+        let main = books.iter().find(|b| b.portfolio.name == "Main").unwrap();
+        let generated = slot(main).await;
+        assert_eq!(generated.slot, "open");
+        assert!(matches!(generated.status.as_str(), "pending" | "no_action"));
+        assert_eq!(generated.created_by, "scheduler");
+        let skipped = slot(&paused).await;
+        assert_eq!(skipped.status, "skipped");
+        assert_eq!(skipped.summary["skip_reason"], "paused");
+        let cancelled = slot(&skipping).await;
+        assert_eq!(cancelled.status, "skipped");
+        assert_eq!(cancelled.summary["skip_reason"], "operator");
+        for quiet in [&gone, &tomorrow, &late] {
+            assert!(
+                trading::plans_for_date(&client, quiet.account.id, today)
+                    .await
+                    .unwrap()
+                    .is_empty(),
+                "{} has nothing to do today",
+                quiet.portfolio.name
+            );
+        }
+        // The generation job is keyed by portfolio.
+        let runs = system::job_runs(&client, Some("plan"), 10).await.unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(
+            runs[0].run_key,
+            format!("{today}:open:p{}", main.portfolio.id)
+        );
+        drop(client);
+        db.drop().await;
+    }
 }

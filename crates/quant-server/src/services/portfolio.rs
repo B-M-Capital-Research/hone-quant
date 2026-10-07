@@ -1,4 +1,5 @@
-//! Paper-account valuation, end-of-day snapshots, corporate actions and live performance.
+//! Paper-account valuation, end-of-day snapshots, corporate actions, live performance, and
+//! opening new portfolios.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -13,7 +14,9 @@ use serde_json::json;
 
 use crate::notify::{self, Event};
 use crate::state::{AppState, ServerEvent};
+use crate::store::portfolios::{self, Book, NewPortfolio};
 use crate::store::settings::{self, BenchmarkSettings};
+use crate::store::strategy as strategy_store;
 use crate::store::trading::{self, Account, dec, f};
 use crate::store::{market, system};
 
@@ -80,9 +83,13 @@ pub fn last_session_date(state: &AppState, now: DateTime<Utc>) -> NaiveDate {
     }
 }
 
-pub async fn valuation(state: &AppState, client: &impl GenericClient) -> Result<Valuation> {
+pub async fn valuation(
+    state: &AppState,
+    client: &impl GenericClient,
+    account: &Account,
+) -> Result<Valuation> {
     let now = state.now();
-    let account = trading::require_active_account(client).await?;
+    let account = account.clone();
     let positions = trading::positions(client, account.id, false).await?;
     let quotes = market::quotes(client).await?;
     let assets: HashMap<String, market::Asset> = market::assets(client, true)
@@ -201,10 +208,12 @@ pub async fn valuation(state: &AppState, client: &impl GenericClient) -> Result<
     })
 }
 
-/// Records the closing NAV and positions for `date` using that day's closes.
-pub async fn snapshot_eod(state: &AppState, date: NaiveDate) -> Result<f64> {
+/// Records an account's closing NAV and positions for `date` using that day's closes.
+pub async fn snapshot_eod(state: &AppState, account_id: i64, date: NaiveDate) -> Result<f64> {
     let client = state.pool.get().await?;
-    let account = trading::require_active_account(&client).await?;
+    let account = trading::account(&client, account_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("account {account_id} not found"))?;
     let positions = trading::positions(&client, account.id, false).await?;
     let symbols: Vec<String> = positions.iter().map(|p| p.symbol.clone()).collect();
     let closes = market::closes_before(&client, &symbols, date + Duration::days(1)).await?;
@@ -236,12 +245,32 @@ pub async fn snapshot_eod(state: &AppState, date: NaiveDate) -> Result<f64> {
 }
 
 /// Applies splits and dividends whose ex-date is `date` (or the previous week, if missed) to
-/// the active account. Dividends are credited on the ex-date (a simplification: real brokers
+/// every active portfolio. Dividends are credited on the ex-date (a simplification: real brokers
 /// pay on the payment date).
 pub async fn apply_corporate_actions(state: &Arc<AppState>, date: NaiveDate) -> Result<usize> {
+    let client = state.pool.get().await?;
+    let books = portfolios::active_books(&client).await?;
+    drop(client);
+    let mut applied = 0;
+    for book in &books {
+        applied += apply_corporate_actions_to(state, book, date).await?;
+    }
+    Ok(applied)
+}
+
+async fn apply_corporate_actions_to(
+    state: &Arc<AppState>,
+    book: &Book,
+    date: NaiveDate,
+) -> Result<usize> {
     let _guard = state.trading_lock.lock().await;
     let mut client = state.pool.get().await?;
-    let account = trading::require_active_account(&client).await?;
+    let Some(account) = trading::account(&client, book.account.id)
+        .await?
+        .filter(|a| a.status == "active")
+    else {
+        return Ok(0);
+    };
     let from = (date - Duration::days(7)).max(account.inception_date);
     let actions = market::pending_actions(&client, account.id, from, date).await?;
     let mut applied = Vec::new();
@@ -313,9 +342,11 @@ pub async fn apply_corporate_actions(state: &Arc<AppState>, date: NaiveDate) -> 
         applied.push((action.symbol.clone(), action.kind.clone(), detail));
     }
     drop(client);
+    let tag = book.portfolio.tag();
     for (symbol, kind, detail) in &applied {
-        let _ = notify::notify(
+        let _ = notify::notify_in(
             state,
+            &tag,
             Event::CorporateAction {
                 symbol: symbol.clone(),
                 kind: kind.clone(),
@@ -327,9 +358,99 @@ pub async fn apply_corporate_actions(state: &Arc<AppState>, date: NaiveDate) -> 
     if !applied.is_empty() {
         state.emit(ServerEvent::Account {
             reason: "corporate_action".into(),
+            portfolio_id: account.portfolio_id,
         });
     }
     Ok(applied.len())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Opening portfolios
+// ---------------------------------------------------------------------------------------------
+
+pub struct OpenPortfolio<'a> {
+    pub portfolio: NewPortfolio<'a>,
+    pub initial_cash: Decimal,
+    pub strategy_version_id: i64,
+}
+
+/// Creates a portfolio with its first paper account (starting NAV dated the session before its
+/// first one, see [`inception_dates`]) and activates its strategy version, inside the caller's
+/// transaction. `None` when the owner already has an active portfolio with that name.
+pub async fn open(
+    state: &AppState,
+    tx: &impl GenericClient,
+    request: &OpenPortfolio<'_>,
+) -> Result<Option<Book>> {
+    let Some(portfolio) = portfolios::insert(tx, &request.portfolio).await? else {
+        return Ok(None);
+    };
+    let (first_session, base_date) = inception_dates(state, state.now());
+    let cash = request.initial_cash;
+    let account = trading::create_account(tx, portfolio.id, "Paper", cash, first_session).await?;
+    trading::upsert_nav(tx, account.id, base_date, cash, cash, Decimal::ZERO).await?;
+    strategy_store::activate(
+        tx,
+        account.id,
+        request.strategy_version_id,
+        request.portfolio.created_by,
+        "initial activation",
+    )
+    .await?;
+    system::audit(
+        tx,
+        request.portfolio.created_by,
+        "portfolio.created",
+        "portfolio",
+        &portfolio.id.to_string(),
+        json!({
+            "name": portfolio.name,
+            "owner": portfolio.owner,
+            "initial_cash": cash,
+            "account_id": account.id,
+            "strategy_version_id": request.strategy_version_id,
+            "automation": portfolio.automation,
+        }),
+        "",
+    )
+    .await?;
+    Ok(Some(Book { portfolio, account }))
+}
+
+/// Headline figures of a portfolio, for lists.
+#[derive(Debug, Clone, Serialize)]
+pub struct Summary {
+    pub nav: f64,
+    pub cash: f64,
+    pub invested: f64,
+    pub total_return: f64,
+    pub day_return: Option<f64>,
+    pub positions: usize,
+    pub initial_cash: f64,
+    pub inception_date: NaiveDate,
+    pub strategy: Option<serde_json::Value>,
+}
+
+pub async fn summary(
+    state: &AppState,
+    client: &impl GenericClient,
+    book: &Book,
+) -> Result<Summary> {
+    let valuation = valuation(state, client, &book.account).await?;
+    let strategy = strategy_store::active_version(client, book.account.id)
+        .await?
+        .map(|v| json!({"id": v.id, "name": v.name, "preset_id": v.preset_id}));
+    Ok(Summary {
+        nav: valuation.nav,
+        cash: valuation.cash,
+        invested: valuation.invested,
+        total_return: valuation.total_return,
+        day_return: valuation.day_return,
+        positions: valuation.positions.len(),
+        initial_cash: f(book.account.initial_cash),
+        inception_date: book.account.inception_date,
+        strategy,
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -393,13 +514,16 @@ pub struct Performance {
     pub inception_date: NaiveDate,
 }
 
-pub async fn performance(state: &AppState, from: Option<NaiveDate>) -> Result<Performance> {
+pub async fn performance(
+    state: &AppState,
+    account: &Account,
+    from: Option<NaiveDate>,
+) -> Result<Performance> {
     let client = state.pool.get().await?;
-    let account = trading::require_active_account(&client).await?;
     let bench_settings: BenchmarkSettings = settings::get(&client, settings::BENCHMARKS).await?;
     let mut history = trading::nav_history(&client, account.id, from).await?;
     // Live point for the current session when it is not yet snapshotted.
-    let live = valuation(state, &client).await?;
+    let live = valuation(state, &client, account).await?;
     let session_date = last_session_date(state, state.now());
     if history.last().is_none_or(|n| n.date < session_date) {
         history.push(trading::NavPoint {

@@ -6,5 +6,7 @@ pub mod broker;
 pub mod marketdata;
 pub mod planner;
 pub mod portfolio;
+#[cfg(test)]
+pub(crate) mod portfolio_tests;
 pub mod reminders;
 pub mod scheduler;

@@ -17,7 +17,7 @@ let source: EventSource | null = null;
 let retry = 1000;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
-const TYPES = ["hello", "quotes", "plan", "account", "notification", "backtest", "settings", "strategy", "universe", "resync"];
+const TYPES = ["hello", "quotes", "plan", "account", "notification", "backtest", "settings", "strategy", "universe", "portfolios", "resync"];
 
 function dispatch(event: ServerEvent) {
   for (const handler of handlers) {

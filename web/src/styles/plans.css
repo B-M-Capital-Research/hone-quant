@@ -160,3 +160,21 @@ a.ticker:hover {
 .plan-kpis .kpi .delta {
   white-space: normal;
 }
+
+/* A plan opened from a link about another portfolio than the current one */
+.plan-portfolio-banner {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.plan-portfolio-banner .text {
+  flex: 1 1 260px;
+}
+
+.plan-portfolio-banner .btn {
+  max-width: min(320px, 100%);
+}
+
+.plan-portfolio-banner .btn .truncate {
+  min-width: 0;
+}

@@ -6,6 +6,7 @@ import { common } from "@/i18n/common";
 import { universeText } from "@/i18n/universe";
 import { api } from "@/lib/api";
 import { DASH, fmtDateTime, fmtQty, fmtWeight } from "@/lib/format";
+import { canTrade, currentPortfolio } from "@/lib/portfolio";
 import { isAdmin } from "@/lib/session";
 import type { Restriction, UniverseView } from "@/lib/types";
 import { RestrictionChip } from "./Members";
@@ -26,6 +27,28 @@ function periodText(r: Restriction): string {
   const t = universeText().restrictions;
   return tpl(t.period, { from: r.starts_on, to: r.ends_on ?? t.open_ended });
 }
+
+/** Universe-wide restrictions apply to every portfolio; the others to the current one only. */
+function ScopeChip(props: { restriction: Restriction }) {
+  const t = () => universeText().restrictions;
+  return (
+    <Show
+      when={props.restriction.portfolio_id === null}
+      fallback={
+        <span class="chip blue" title={tpl(t().scope_portfolio_hint, { name: currentPortfolio()?.name ?? "" })}>
+          <Icon name="briefcase" size={11} /> {t().scope_portfolio}
+        </span>
+      }
+    >
+      <span class="chip outline" title={t().scope_all_hint}>
+        <Icon name="layers" size={11} /> {t().scope_all}
+      </span>
+    </Show>
+  );
+}
+
+/** Revoking a universe-wide restriction is for administrators; a portfolio's own needs the right to trade it. */
+const canRevoke = (r: Restriction) => (r.portfolio_id === null ? isAdmin() : canTrade());
 
 export function ModeExplainer() {
   const t = universeText;
@@ -71,7 +94,7 @@ export function ActiveRestrictions(props: { view: UniverseView; active: Restrict
       fallback={
         <Empty title={t().restrictions.empty} icon="shield">
           <span>{t().restrictions.empty_hint}</span>
-          <Show when={isAdmin()}>
+          <Show when={canTrade()}>
             <button class="btn sm" onClick={() => props.onAdd()}>
               <Icon name="plus" size={13} /> {t().actions.add_restriction}
             </button>
@@ -85,10 +108,11 @@ export function ActiveRestrictions(props: { view: UniverseView; active: Restrict
             <tr>
               <th>{t().restrictions.h_company}</th>
               <th>{t().restrictions.h_mode}</th>
+              <th>{t().restrictions.h_scope}</th>
               <th>{t().restrictions.h_reason}</th>
               <th>{t().restrictions.h_period}</th>
               <th>{t().restrictions.h_created}</th>
-              <Show when={isAdmin()}>
+              <Show when={canTrade() || isAdmin()}>
                 <th class="r" />
               </Show>
             </tr>
@@ -103,17 +127,22 @@ export function ActiveRestrictions(props: { view: UniverseView; active: Restrict
                   <td>
                     <RestrictionChip restriction={r} />
                   </td>
+                  <td>
+                    <ScopeChip restriction={r} />
+                  </td>
                   <td class="uv-reason">{r.reason || <span class="muted">{DASH}</span>}</td>
                   <td class="nowrap small num">{periodText(r)}</td>
                   <td class="nowrap">
                     <div class="small num">{fmtDateTime(r.created_at)}</div>
                     <div class="xs muted">{actorName(r.created_by)}</div>
                   </td>
-                  <Show when={isAdmin()}>
+                  <Show when={canTrade() || isAdmin()}>
                     <td class="r">
-                      <button class="btn sm danger" onClick={() => void revoke(r)}>
-                        {t().actions.revoke}
-                      </button>
+                      <Show when={canRevoke(r)}>
+                        <button class="btn sm danger" onClick={() => void revoke(r)}>
+                          {t().actions.revoke}
+                        </button>
+                      </Show>
                     </td>
                   </Show>
                 </tr>
@@ -137,6 +166,7 @@ export function RestrictionHistory(props: { view: UniverseView; history: Restric
             <tr>
               <th>{t().restrictions.h_company}</th>
               <th>{t().restrictions.h_mode}</th>
+              <th>{t().restrictions.h_scope}</th>
               <th>{t().restrictions.h_reason}</th>
               <th>{t().restrictions.h_period}</th>
               <th>{t().restrictions.h_state}</th>
@@ -156,6 +186,9 @@ export function RestrictionHistory(props: { view: UniverseView; history: Restric
                       <span class="chip outline">
                         <Icon name={r.mode === "exclude" ? "ban" : "lock"} size={11} /> {modeText(r.mode)}
                       </span>
+                    </td>
+                    <td>
+                      <ScopeChip restriction={r} />
                     </td>
                     <td class="uv-reason">{r.reason || <span class="muted">{DASH}</span>}</td>
                     <td class="nowrap small num">{periodText(r)}</td>
@@ -197,6 +230,8 @@ export function AddRestrictionDialog(props: {
   const [mode, setMode] = createSignal<"exclude" | "lock">("exclude");
   const [reason, setReason] = createSignal("");
   const [endsOn, setEndsOn] = createSignal("");
+  const [scope, setScope] = createSignal<"portfolio" | "all">("portfolio");
+  const portfolioName = () => currentPortfolio()?.name ?? "";
   const [touched, setTouched] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
 
@@ -221,7 +256,7 @@ export function AddRestrictionDialog(props: {
     if (!canSubmit()) return;
     setBusy(true);
     try {
-      await api.addRestriction({ symbol: symbol(), mode: mode(), reason: reason().trim(), ends_on: endsOn() || null });
+      await api.addRestriction({ symbol: symbol(), mode: mode(), reason: reason().trim(), ends_on: endsOn() || null, scope: scope() });
       toast(tpl(t().add.added, { symbol: symbol() }), effect(), "success", 6000);
       props.onAdded();
     } catch (error) {
@@ -294,6 +329,40 @@ export function AddRestrictionDialog(props: {
             </span>
           </label>
           </div>
+        </fieldset>
+
+        <fieldset class="uv-mode-pick">
+          <legend class="field-label">{t().add.scope}</legend>
+          <Show
+            when={isAdmin()}
+            fallback={
+              <p class="small">
+                <Icon name="briefcase" size={13} style={{ "vertical-align": "-2px" }} /> {tpl(t().add.scope_portfolio, { name: portfolioName() })}
+                <span class="muted"> · {t().add.scope_portfolio_body}</span>
+              </p>
+            }
+          >
+            <div class="uv-mode-grid">
+              <label class="uv-mode-option" classList={{ selected: scope() === "portfolio" }}>
+                <input type="radio" name="uv-scope" value="portfolio" checked={scope() === "portfolio"} onChange={() => setScope("portfolio")} />
+                <span>
+                  <span class="uv-mode-title">
+                    <Icon name="briefcase" size={14} /> {tpl(t().add.scope_portfolio, { name: portfolioName() })}
+                  </span>
+                  <span class="uv-mode-body">{t().add.scope_portfolio_body}</span>
+                </span>
+              </label>
+              <label class="uv-mode-option" classList={{ selected: scope() === "all" }}>
+                <input type="radio" name="uv-scope" value="all" checked={scope() === "all"} onChange={() => setScope("all")} />
+                <span>
+                  <span class="uv-mode-title">
+                    <Icon name="layers" size={14} /> {t().add.scope_all}
+                  </span>
+                  <span class="uv-mode-body">{t().add.scope_all_body}</span>
+                </span>
+              </label>
+            </div>
+          </Show>
         </fieldset>
 
         <div class="field">

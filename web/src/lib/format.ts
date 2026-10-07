@@ -16,6 +16,15 @@ export function toNumber(value: Num): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Accepts full-width digits and separators typed through a Chinese IME, and thousands separators. */
+export function normalizeNumText(text: string): string {
+  return text
+    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[．。]/g, ".")
+    .replace(/[－—–]/g, "-")
+    .replace(/[,\s_，]/g, "");
+}
+
 function intl(): string {
   return locale() === "zh" ? "zh-CN" : "en-US";
 }

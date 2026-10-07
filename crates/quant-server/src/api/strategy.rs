@@ -1,4 +1,5 @@
-//! Strategy versions and the universe.
+//! Strategy versions (a library shared by every portfolio; each portfolio activates one of
+//! them) and the universe.
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -7,22 +8,24 @@ use quant_core::strategy::{StrategyParams, preset, presets};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::context::{MaybePortfolio, PortfolioCtx, TradeCtx};
 use super::error::{ApiError, ApiResult};
-use crate::auth::{AdminUser, CurrentUser};
+use crate::auth::{AdminUser, Role};
 use crate::notify::{self, Event};
 use crate::services::planner;
 use crate::state::{ServerEvent, SharedState};
 use crate::store::strategy as strategy_store;
-use crate::store::{market, system, trading};
+use crate::store::{market, system};
 use crate::universe;
 
 pub async fn overview(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    ctx: PortfolioCtx,
 ) -> ApiResult<Json<Value>> {
     let client = state.pool.get().await?;
-    let account = trading::require_active_account(&client).await?;
+    let account = ctx.account();
     Ok(Json(json!({
+        "portfolio": ctx.portfolio().tag(),
         "active": strategy_store::active_version(&client, account.id).await?,
         "versions": strategy_store::versions(&client).await?,
         "activations": strategy_store::activations(&client, account.id).await?,
@@ -36,15 +39,16 @@ pub struct PreviewBody {
     params: Value,
 }
 
-/// Dry run: what the given parameters would trade right now. Nothing is stored.
+/// Dry run: what the given parameters would trade right now in the selected portfolio. Nothing
+/// is stored.
 pub async fn preview(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    ctx: PortfolioCtx,
     Json(body): Json<PreviewBody>,
 ) -> ApiResult<Json<Value>> {
     let params = StrategyParams::from_json_strict(&body.params).map_err(ApiError::Validation)?;
     let today = MarketCalendar::local_date(state.now());
-    let proposal = planner::build_proposal(&state, &params, today).await?;
+    let proposal = planner::build_proposal(&state, ctx.account(), &params, today).await?;
     Ok(Json(json!({
         "as_of": state.now(),
         "nav": proposal.nav,
@@ -71,11 +75,24 @@ pub struct VersionBody {
     activate: bool,
 }
 
+/// Adds a version to the shared library (administrators); `activate` also activates it in the
+/// selected portfolio.
 pub async fn create_version(
     State(state): State<SharedState>,
-    AdminUser(user): AdminUser,
+    ctx: PortfolioCtx,
     Json(body): Json<VersionBody>,
 ) -> ApiResult<Json<Value>> {
+    let user = &ctx.user;
+    if user.role != Role::Admin {
+        return Err(ApiError::Forbidden(
+            "this action requires the admin role".into(),
+        ));
+    }
+    if body.activate && !ctx.can_trade() {
+        return Err(ApiError::Forbidden(
+            "you cannot act on this portfolio".into(),
+        ));
+    }
     let params = StrategyParams::from_json_strict(&body.params).map_err(ApiError::Validation)?;
     if preset(&body.preset_id).is_none() && body.preset_id != "custom" {
         return Err(ApiError::bad("unknown preset"));
@@ -85,7 +102,7 @@ pub async fn create_version(
         return Err(ApiError::bad("name must be 1–80 characters"));
     }
     let mut client = state.pool.get().await?;
-    let account = trading::require_active_account(&client).await?;
+    let account = ctx.account();
     let tx = client.transaction().await?;
     let version = strategy_store::insert_version(
         &tx,
@@ -121,7 +138,7 @@ pub async fn create_version(
             "strategy.activated",
             "strategy_version",
             &version.id.to_string(),
-            json!({}),
+            json!({"portfolio_id": ctx.portfolio().id}),
             &user.ip,
         )
         .await?;
@@ -130,10 +147,12 @@ pub async fn create_version(
     drop(client);
     state.emit(ServerEvent::Strategy {
         version_id: version.id,
+        portfolio_id: body.activate.then_some(ctx.portfolio().id),
     });
     if body.activate {
-        let _ = notify::notify(
+        let _ = notify::notify_in(
             &state,
+            &ctx.portfolio().tag(),
             Event::StrategyActivated {
                 version_id: version.id,
                 name: version.name.clone(),
@@ -154,15 +173,17 @@ pub struct ActivateBody {
     note: String,
 }
 
+/// Activates a library version in the selected portfolio.
 pub async fn activate_version(
     State(state): State<SharedState>,
-    AdminUser(user): AdminUser,
+    TradeCtx(ctx): TradeCtx,
     Path(id): Path<i64>,
     body: Option<Json<ActivateBody>>,
 ) -> ApiResult<Json<Value>> {
+    let user = &ctx.user;
     let note = body.map(|b| b.0.note).unwrap_or_default();
     let client = state.pool.get().await?;
-    let account = trading::require_active_account(&client).await?;
+    let account = ctx.account();
     let version = strategy_store::version(&client, id)
         .await?
         .ok_or_else(|| ApiError::not_found("strategy version"))?;
@@ -182,14 +203,18 @@ pub async fn activate_version(
         "strategy.activated",
         "strategy_version",
         &id.to_string(),
-        json!({"note": note}),
+        json!({"note": note, "portfolio_id": ctx.portfolio().id}),
         &user.ip,
     )
     .await?;
     drop(client);
-    state.emit(ServerEvent::Strategy { version_id: id });
-    let _ = notify::notify(
+    state.emit(ServerEvent::Strategy {
+        version_id: id,
+        portfolio_id: Some(ctx.portfolio().id),
+    });
+    let _ = notify::notify_in(
         &state,
+        &ctx.portfolio().tag(),
         Event::StrategyActivated {
             version_id: id,
             name: version.name.clone(),
@@ -203,7 +228,7 @@ pub async fn activate_version(
 
 pub async fn universe(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    context: MaybePortfolio,
 ) -> ApiResult<Json<Value>> {
     let client = state.pool.get().await?;
     let versions = client
@@ -235,7 +260,14 @@ pub async fn universe(
         "removed": market::assets(&client, true).await?.into_iter().filter(|a| !a.is_active).collect::<Vec<_>>(),
         "benchmarks": universe::bundled().benchmarks,
         "versions": versions,
-        "restrictions": strategy_store::active_restrictions(&client, today).await?,
+        // The selected portfolio's restrictions (without one: only the universe-wide ones; no
+        // portfolio has id 0).
+        "restrictions": strategy_store::active_restrictions(
+            &client,
+            today,
+            context.book.as_ref().map_or(0, |b| b.portfolio.id),
+        )
+        .await?,
         "bundled_source": universe::bundled().source,
         "ontology_url": universe::ONTOLOGY_URL,
     })))

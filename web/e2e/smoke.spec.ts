@@ -48,7 +48,7 @@ test("the language switch changes the whole interface", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
 });
 
-const PAGES = ["/", "/plans", "/trades", "/strategy", "/universe", "/backtests", "/performance", "/notifications", "/audit", "/settings"];
+const PAGES = ["/", "/plans", "/trades", "/portfolios", "/strategy", "/universe", "/backtests", "/performance", "/notifications", "/audit", "/settings"];
 
 for (const locale of ["zh", "en"] as const) {
   test(`every page renders without errors (${locale})`, async ({ page }) => {

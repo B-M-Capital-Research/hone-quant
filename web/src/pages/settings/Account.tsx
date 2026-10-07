@@ -4,9 +4,9 @@ import { tpl } from "@/i18n";
 import { common } from "@/i18n/common";
 import { settingsText } from "@/i18n/settings";
 import { ApiError, api } from "@/lib/api";
-import { onServerEvent } from "@/lib/events";
 import { fmtDate, fmtDateTime, fmtMoney, toNumber } from "@/lib/format";
-import { isAdmin, refreshMarket } from "@/lib/session";
+import { canTrade, currentPortfolio, onPortfolioEvent } from "@/lib/portfolio";
+import { refreshMarket } from "@/lib/session";
 import type { Account } from "@/lib/types";
 import { normalizeNumText } from "./num";
 import { Field, Gate, SIcon, createLoader, focusFirstInvalid } from "./shared";
@@ -15,7 +15,7 @@ export default function AccountSection() {
   const accounts = createLoader(() => api.accounts());
   const dash = createLoader(() => api.dashboard());
   onMount(() => {
-    const off = onServerEvent(["account"], () => {
+    const off = onPortfolioEvent(["account"], () => {
       void accounts.reload();
       void dash.reload();
     });
@@ -160,7 +160,7 @@ function DangerZone(props: { account: Account; onDone: () => Promise<void> }) {
           <For each={t().account.danger_points}>{(p) => <li>{p}</li>}</For>
         </ul>
         <div class="danger-action">
-          <Show when={isAdmin()} fallback={<p class="muted small">{t().account.viewer_note}</p>}>
+          <Show when={canTrade()} fallback={<p class="muted small">{t().account.viewer_note}</p>}>
             <button type="button" class="btn danger" onClick={() => setOpen(true)}>
               {t().account.reset_button}
             </button>
@@ -248,7 +248,7 @@ function ResetDialog(props: { account: Account; onClose: () => void; onDone: () 
       <form class="stack" style={{ gap: "16px" }} novalidate onSubmit={(e) => e.preventDefault()}>
         <div class="callout critical">
           <SIcon name="alert" size={16} />
-          <span>{t().account.dialog_warning}</span>
+          <span>{tpl(t().account.dialog_warning, { name: currentPortfolio()?.name ?? "" })}</span>
         </div>
         <ul class="danger-points compact">
           <For each={t().account.danger_points}>{(p) => <li>{p}</li>}</For>

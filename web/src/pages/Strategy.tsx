@@ -9,6 +9,7 @@ import { strategyText } from "@/i18n/strategy";
 import { api } from "@/lib/api";
 import { onServerEvent } from "@/lib/events";
 import { fmtDateTime, fmtDual } from "@/lib/format";
+import { currentPortfolio, onPortfolioEvent } from "@/lib/portfolio";
 import { isAdmin, serverNow } from "@/lib/session";
 import type { Plan, Preset, ScheduleSettings, Sector, StrategyOverview, StrategyVersion } from "@/lib/types";
 import { Methodology } from "./strategy/Methodology";
@@ -19,7 +20,7 @@ import { WorkbenchView, buildSources } from "./strategy/Workbench";
 import { diffPaths, withDefaults } from "./strategy/params";
 import { presetName } from "./strategy/format";
 import { activateExisting, backtestHref, nextPlanInfo } from "./strategy/shared";
-import { type Source, createWorkbench } from "./strategy/workbench";
+import { type Source, createWorkbench } from "./strategy/workbench-state";
 import { actorName, strategyName, systemNote } from "@/lib/names";
 
 type Tab = "overview" | "workbench" | "versions";
@@ -45,9 +46,9 @@ export default function Strategy() {
   };
 
   onMount(() => {
-    const offStrategy = onServerEvent(["strategy"], () => void refetch());
+    const offStrategy = onPortfolioEvent(["strategy"], () => void refetch());
     const offUniverse = onServerEvent(["universe"], () => void refetchUniverse());
-    const offPlans = onServerEvent(["plan"], () => void refetchPending());
+    const offPlans = onPortfolioEvent(["plan"], () => void refetchPending());
     onCleanup(() => {
       offStrategy();
       offUniverse();
@@ -334,6 +335,13 @@ function OverviewTab(props: {
                       {t().active.active_chip}
                     </span>
                   </div>
+                  <Show when={currentPortfolio()}>
+                    {(p) => (
+                      <p class="xs muted st-active-scope">
+                        <Icon name="briefcase" size={12} /> {tpl(t().active.scope, { name: p().name })}
+                      </p>
+                    )}
+                  </Show>
                   <dl class="kv st-active-kv">
                     <dt>{t().active.preset}</dt>
                     <dd>

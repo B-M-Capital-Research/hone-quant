@@ -66,7 +66,8 @@ enum UserCommand {
     /// Create an operator (password read from the terminal or stdin).
     Add {
         username: String,
-        #[arg(long, default_value = "admin", value_parser = ["admin", "viewer"])]
+        /// admin: everything; member: their own portfolios; viewer: read-only.
+        #[arg(long, default_value = "admin", value_parser = ["admin", "member", "viewer"])]
         role: String,
     },
     /// Set a new password for an operator and sign out their sessions.

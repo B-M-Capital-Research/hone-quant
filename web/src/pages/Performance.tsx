@@ -5,8 +5,8 @@ import { ErrorState, Kpi, Loading, Money, Pct, Segmented } from "@/components/ui
 import { tpl } from "@/i18n";
 import { researchText } from "@/i18n/research";
 import { api } from "@/lib/api";
-import { onServerEvent } from "@/lib/events";
 import { fmtMoney, fmtNum, fmtPct } from "@/lib/format";
+import { onPortfolioEvent } from "@/lib/portfolio";
 import type { Performance as PerformanceData, UniverseView } from "@/lib/types";
 import { Card, KpiStrip, MetricsTable, RelativeKpis, ReturnRiskKpis, type MetricsColumn } from "./research/components";
 import { RELIABLE_DAYS, assetNamer, benchLong, benchShort, benchSlot, createLoader, debounce, mean, sectorNamer, universeRef } from "./research/model";
@@ -50,7 +50,7 @@ export default function Performance() {
     universeRef.get().then(setUniverse).catch(() => undefined);
     // Fills, snapshots and corporate actions all arrive as account events.
     const refresh = debounce(() => void perf.load(), 800);
-    const off = onServerEvent(["account", "settings"], refresh);
+    const off = onPortfolioEvent(["account", "settings"], refresh);
     onCleanup(off);
   });
 

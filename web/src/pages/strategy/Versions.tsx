@@ -6,7 +6,7 @@ import { tpl } from "@/i18n";
 import { common } from "@/i18n/common";
 import { strategyText } from "@/i18n/strategy";
 import { fmtDateTime, fmtDual } from "@/lib/format";
-import { isAdmin } from "@/lib/session";
+import { canTrade, currentPortfolio } from "@/lib/portfolio";
 import type { Activation, Sector, StrategyOverview, StrategyVersion } from "@/lib/types";
 import { KeyParams, ParamView } from "./ParamView";
 import { diffPaths, getPath, withDefaults } from "./params";
@@ -54,7 +54,7 @@ export function VersionsTable(props: {
                     <div class="row" style={{ gap: "8px" }}>
                       <span class="num st-vid">#{v.id}</span>
                       <Show when={isActive()}>
-                        <span class="chip green">
+                        <span class="chip green" title={tpl(t().active.active_in, { name: currentPortfolio()?.name ?? "" })}>
                           <span class="dot" />
                           {t().active.active_chip}
                         </span>
@@ -91,7 +91,7 @@ export function VersionsTable(props: {
                       <A class="btn sm ghost" href={backtestHref(v.id)}>
                         {t().actions.backtest}
                       </A>
-                      <Show when={isAdmin()}>
+                      <Show when={canTrade()}>
                         <button class="btn sm" onClick={() => props.onActivate(v)} disabled={isActive()} title={isActive() ? t().activate.already : undefined}>
                           {t().actions.activate}
                         </button>
@@ -185,7 +185,7 @@ export function VersionDialog(props: {
             <Icon name="backtest" size={14} /> {t().actions.backtest_version}
           </A>
           <span class="spacer" />
-          <Show when={isAdmin() && !isActive()}>
+          <Show when={canTrade() && !isActive()}>
             <button class="btn primary" onClick={() => props.onActivate(props.version)}>
               {t().actions.activate}
             </button>

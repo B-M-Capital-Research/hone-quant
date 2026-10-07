@@ -23,11 +23,18 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../migrations/0001_init.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("../migrations/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "portfolios",
+        sql: include_str!("../migrations/0002_portfolios.sql"),
+    },
+];
 
 pub fn create_pool(cfg: &DbConfig) -> Result<Pool> {
     let manager = Manager::from_config(
@@ -236,6 +243,154 @@ mod tests {
             count >= 25,
             "expected the full schema, found {count} tables"
         );
+        drop(client);
+        db.drop().await;
+    }
+}
+
+#[cfg(test)]
+mod upgrade_tests {
+    use super::testing::TestDb;
+    use super::*;
+
+    /// A schema at version 1 with one account, history and a global automation setting becomes
+    /// one shared portfolio, "Main", that keeps all of it.
+    #[tokio::test]
+    async fn version_1_data_becomes_the_main_portfolio() {
+        let Some(db) = TestDb::new(DataSource::Demo).await else {
+            eprintln!("skipped: HONE_QUANT_TEST_DATABASE_URL not set");
+            return;
+        };
+        // Rebuild the schema as version 1 left it.
+        let schema = format!("{}_v1", db.schema);
+        let client = db.pool.get().await.unwrap();
+        client
+            .batch_execute(&format!(
+                "CREATE SCHEMA {schema};
+                 SET search_path TO {schema};
+                 CREATE TABLE {schema}.schema_migrations (
+                     version INT PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL,
+                     applied_at TIMESTAMPTZ NOT NULL DEFAULT now());"
+            ))
+            .await
+            .unwrap();
+        client.batch_execute(MIGRATIONS[0].sql).await.unwrap();
+        client
+            .execute(
+                &format!("INSERT INTO {schema}.schema_migrations (version, name, checksum) VALUES (1, 'init', $1)"),
+                &[&checksum(MIGRATIONS[0].sql)],
+            )
+            .await
+            .unwrap();
+        client
+            .batch_execute(
+                "INSERT INTO instance_meta (key, value) VALUES ('data_source', '{\"source\": \"demo\"}');
+                 INSERT INTO settings (key, value) VALUES ('automation', '{\"mode\": \"approval\", \"note\": \"careful\"}');
+                 INSERT INTO accounts (name, initial_cash, cash, inception_date, status) VALUES ('Paper', 1000, 1000, '2026-01-02', 'archived');
+                 INSERT INTO accounts (name, initial_cash, cash, inception_date) VALUES ('Paper', 5000, 5000, '2026-02-02');
+                 INSERT INTO skipped_slots (trade_date, slot, created_by) VALUES ('2026-10-06', 'close', 'admin');
+                 INSERT INTO trading_restrictions (symbol, mode, starts_on, created_by) VALUES ('NVDA', 'lock', '2026-10-01', 'admin');
+                 INSERT INTO users (username, password_hash, role) VALUES ('ops', 'x', 'viewer');",
+            )
+            .await
+            .unwrap();
+        drop(client);
+
+        // Upgrade through a pool pinned to that schema.
+        let url = std::env::var("HONE_QUANT_TEST_DATABASE_URL").unwrap();
+        let mut pg = <tokio_postgres::Config as std::str::FromStr>::from_str(&url).unwrap();
+        pg.options(format!("-c search_path={schema}"));
+        let cfg = crate::config::DbConfig {
+            pg,
+            schema: schema.clone(),
+            pool_size: 2,
+            display: "test".into(),
+            borrowed_from_honeclaw: false,
+        };
+        let pool = create_pool(&cfg).unwrap();
+        assert_eq!(
+            migrate(&pool, &schema, DataSource::Demo).await.unwrap(),
+            vec![2]
+        );
+        let client = pool.get().await.unwrap();
+        let row = client
+            .query_one(
+                "SELECT id, name, owner, automation->>'mode', automation->>'note', status FROM portfolios",
+                &[],
+            )
+            .await
+            .unwrap();
+        let main: i64 = row.get(0);
+        assert_eq!(row.get::<_, String>(1), "Main");
+        assert_eq!(row.get::<_, Option<String>>(2), None);
+        assert_eq!(row.get::<_, String>(3), "approval");
+        assert_eq!(row.get::<_, String>(4), "careful");
+        assert_eq!(row.get::<_, String>(5), "active");
+        let unassigned: i64 = client
+            .query_one(
+                "SELECT count(*) FROM accounts WHERE portfolio_id IS DISTINCT FROM $1",
+                &[&main],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(unassigned, 0, "both accounts belong to Main");
+        let skipped: i64 = client
+            .query_one("SELECT portfolio_id FROM skipped_slots", &[])
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(skipped, main);
+        let scope: Option<i64> = client
+            .query_one("SELECT portfolio_id FROM trading_restrictions", &[])
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(
+            scope, None,
+            "existing restrictions keep applying everywhere"
+        );
+        assert!(
+            client
+                .query_opt("SELECT 1 FROM settings WHERE key = 'automation'", &[])
+                .await
+                .unwrap()
+                .is_none()
+        );
+        // One active account per portfolio, any number of portfolios; members exist.
+        let second = client
+            .execute(
+                "INSERT INTO accounts (portfolio_id, name, initial_cash, cash, inception_date) VALUES ($1, 'Paper', 1, 1, '2026-10-05')",
+                &[&main],
+            )
+            .await;
+        assert!(second.is_err(), "Main already has an active account");
+        client
+            .batch_execute(
+                "INSERT INTO portfolios (name, owner, created_by) VALUES ('Alice', 'alice', 'alice');
+                 INSERT INTO accounts (portfolio_id, name, initial_cash, cash, inception_date)
+                   SELECT id, 'Paper', 1, 1, '2026-10-05' FROM portfolios WHERE owner = 'alice';
+                 INSERT INTO users (username, password_hash, role) VALUES ('alice', 'x', 'member');",
+            )
+            .await
+            .unwrap();
+        assert!(
+            client
+                .execute(
+                    "INSERT INTO portfolios (name, owner, created_by) VALUES ('ALICE ', 'alice', 'alice')",
+                    &[],
+                )
+                .await
+                .is_err(),
+            "names are unique per owner"
+        );
+        drop(client);
+        pool.close();
+        let client = db.pool.get().await.unwrap();
+        client
+            .batch_execute(&format!("DROP SCHEMA {schema} CASCADE"))
+            .await
+            .unwrap();
         drop(client);
         db.drop().await;
     }

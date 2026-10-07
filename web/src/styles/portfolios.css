@@ -1,0 +1,171 @@
+/* Portfolios page: cards, and the create / edit / archive dialogs. */
+.pf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.pf-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+}
+
+.pf-card.current {
+  border-color: color-mix(in srgb, var(--hone-signal-green) 45%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--hone-signal-green) 25%, transparent);
+}
+
+.pf-card.archived {
+  background: var(--hone-paper-100);
+}
+
+.pf-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.pf-card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.pf-card-title h2 {
+  overflow: hidden;
+  font-size: var(--hone-text-lg);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-card-owner {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-xs);
+}
+
+.pf-card-desc {
+  display: -webkit-box;
+  min-height: 2.9em;
+  overflow: hidden;
+  font-size: var(--hone-text-sm);
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.pf-card-kpis {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--hone-line);
+  border-radius: var(--hone-radius-sm);
+  background: var(--hone-paper-50);
+}
+
+.pf-card-kpis > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pf-card-kpis .label {
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-xs);
+}
+
+.pf-card-kpis .value {
+  overflow: hidden;
+  font-size: var(--hone-text-md);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-card-kv {
+  grid-template-columns: minmax(84px, auto) 1fr;
+  gap: 7px 14px;
+}
+
+.pf-card-kv dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pf-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--hone-line);
+}
+
+.pf-current-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--hone-signal-green-ink);
+  font-size: var(--hone-text-xs);
+  font-weight: 650;
+}
+
+/* Dialogs */
+.pf-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.pf-money .input {
+  border-radius: 0;
+}
+
+.pf-money .addon {
+  white-space: nowrap;
+}
+
+.pf-money .addon.pre {
+  border-right: 0;
+  border-left: 1px solid var(--hone-line-strong);
+  border-radius: var(--hone-radius-xs) 0 0 var(--hone-radius-xs);
+}
+
+.pf-money .input.invalid + .addon,
+.pf-money .addon.pre:has(+ .input.invalid) {
+  border-color: var(--hone-error-600);
+}
+
+.pf-static {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+}
+
+.pf-points {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--hone-ink-600);
+  font-size: var(--hone-text-xs);
+  line-height: 1.55;
+}
+
+@media (max-width: 760px) {
+  .pf-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pf-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

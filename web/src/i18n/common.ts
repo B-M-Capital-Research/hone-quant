@@ -16,6 +16,7 @@ const zh = {
     overview: "总览",
     plans: "交易计划",
     trades: "成交与订单",
+    portfolios: "组合",
     strategy: "策略",
     universe: "投资范围",
     backtests: "回测",
@@ -57,10 +58,17 @@ const zh = {
     network: "无法连接服务器，请检查网络或服务状态。",
     saved: "已保存",
     no_permission: "需要管理员权限",
+    forbidden: "你没有权限执行这个操作",
     live: "实时",
     stale: "数据可能已过期",
   },
   phase: {
+    pre_open: "盘前",
+    open: "交易中",
+    post_close: "已收盘",
+    closed: "休市",
+  },
+  phase_short: {
     pre_open: "盘前",
     open: "交易中",
     post_close: "已收盘",
@@ -130,6 +138,11 @@ const zh = {
     auto_hint: "计划生成后经过复核窗口自动执行",
     approval_hint: "计划生成后等待你确认，未确认则过期",
     paused_hint: "不生成任何计划",
+  },
+  roles: {
+    admin: "管理员",
+    member: "成员",
+    viewer: "只读",
   },
   severity: {
     info: "信息",
@@ -239,6 +252,7 @@ const en: typeof zh = {
     overview: "Overview",
     plans: "Trading plans",
     trades: "Trades & orders",
+    portfolios: "Portfolios",
     strategy: "Strategy",
     universe: "Universe",
     backtests: "Backtests",
@@ -280,6 +294,7 @@ const en: typeof zh = {
     network: "Cannot reach the server. Check your connection or the service.",
     saved: "Saved",
     no_permission: "Requires the admin role",
+    forbidden: "You do not have permission to do that",
     live: "Live",
     stale: "Data may be stale",
   },
@@ -288,6 +303,12 @@ const en: typeof zh = {
     open: "Market open",
     post_close: "Closed",
     closed: "Market holiday",
+  },
+  phase_short: {
+    pre_open: "Pre",
+    open: "Open",
+    post_close: "Closed",
+    closed: "Holiday",
   },
   slot: {
     open: "Opening plan",
@@ -353,6 +374,11 @@ const en: typeof zh = {
     auto_hint: "Plans execute automatically after the review window",
     approval_hint: "Plans wait for your approval and expire otherwise",
     paused_hint: "No plans are generated",
+  },
+  roles: {
+    admin: "Admin",
+    member: "Member",
+    viewer: "Viewer",
   },
   severity: {
     info: "Info",

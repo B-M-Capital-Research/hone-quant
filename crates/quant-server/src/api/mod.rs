@@ -1,9 +1,13 @@
 //! HTTP API (`/api/*`), the SSE event stream and the embedded web UI.
 
+pub mod context;
 pub mod error;
 
 mod auth_routes;
 mod dashboard;
+#[cfg(test)]
+mod portfolio_tests;
+mod portfolios;
 mod research;
 mod strategy;
 mod system_routes;
@@ -24,7 +28,7 @@ use futures::Stream;
 use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::auth::{ACTION_HEADER, CurrentUser};
-use crate::state::SharedState;
+use crate::state::{ServerEvent, SharedState};
 use error::ApiError;
 
 /// Header the Cloudflare Worker adds when `HONE_QUANT_ORIGIN_TOKEN` is configured.
@@ -138,16 +142,32 @@ pub fn app(state: SharedState) -> Router {
         }))
 }
 
+/// Server-sent events. Events about a portfolio reach only users who can see it.
 async fn events(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    user: CurrentUser,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
     let mut receiver = state.events.subscribe();
+    let mut visible = context::visible_ids(&state, &user)
+        .await
+        .unwrap_or(Some(Vec::new()));
     let stream = async_stream::stream! {
         yield Ok(SseEvent::default().event("hello").data("{}"));
         loop {
             match receiver.recv().await {
                 Ok(event) => {
+                    if let (Some(ids), Some(id)) = (visible.as_ref(), event.portfolio_id())
+                        && !ids.contains(&id)
+                    {
+                        // A portfolio this member just created is theirs; anything else is not.
+                        if !matches!(event, ServerEvent::Portfolios { .. }) {
+                            continue;
+                        }
+                        visible = context::visible_ids(&state, &user).await.unwrap_or(Some(Vec::new()));
+                        if !visible.as_ref().is_some_and(|ids| ids.contains(&id)) {
+                            continue;
+                        }
+                    }
                     let name = serde_json::to_value(&event)
                         .ok()
                         .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
@@ -219,6 +239,16 @@ pub fn router(state: SharedState) -> Router {
         .route("/ledger", get(trading::ledger))
         .route("/accounts", get(trading::accounts))
         .route("/account/reset", post(trading::reset_account))
+        // Portfolios.
+        .route(
+            "/portfolios",
+            get(portfolios::list).post(portfolios::create),
+        )
+        .route(
+            "/portfolios/{id}",
+            get(portfolios::detail).put(portfolios::update),
+        )
+        .route("/portfolios/{id}/archive", post(portfolios::archive))
         // Strategy & universe.
         .route("/strategy", get(strategy::overview))
         .route("/strategy/preview", post(strategy::preview))

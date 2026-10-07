@@ -5,10 +5,13 @@
  */
 import { A, Navigate, useNavigate, useParams } from "@solidjs/router";
 import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, onMount } from "solid-js";
+import { tpl } from "@/i18n";
+import { portfoliosText } from "@/i18n/portfolios";
 import { settingsText } from "@/i18n/settings";
 import { api } from "@/lib/api";
 import { onServerEvent } from "@/lib/events";
-import { isAdmin } from "@/lib/session";
+import { canTrade, currentPortfolio } from "@/lib/portfolio";
+import { isAdmin, me } from "@/lib/session";
 import AccountSection from "@/pages/settings/Account";
 import AutomationSection from "@/pages/settings/Automation";
 import BenchmarksSection from "@/pages/settings/Benchmarks";
@@ -62,6 +65,9 @@ const ICONS: Record<SectionKey, SIconName> = {
 /** Sections whose content (not just editing) is admin-only. */
 const ADMIN_ONLY: SectionKey[] = ["users"];
 
+/** Sections about the current portfolio (editable by whoever may trade it); the rest are global. */
+const PORTFOLIO_SECTIONS: SectionKey[] = ["automation", "account"];
+
 export default function Settings() {
   const t = settingsText;
   const params = useParams<{ section?: string }>();
@@ -69,6 +75,15 @@ export default function Settings() {
   const known = () => !params.section || (SECTIONS as string[]).includes(params.section);
   const section = createMemo<SectionKey>(() => (known() && params.section ? (params.section as SectionKey) : "schedule"));
   const meta = () => t().sections[section()];
+  const perPortfolio = () => PORTFOLIO_SECTIONS.includes(section());
+  const portfolioName = () => currentPortfolio()?.name ?? "";
+  /** Why this section is read-only for the signed-in user, if it is. */
+  const readOnlyNote = () => {
+    if (section() === "security") return null;
+    if (perPortfolio()) return canTrade() ? null : tpl(t().read_only_portfolio, { name: portfolioName() });
+    if (isAdmin()) return null;
+    return me()?.role === "member" ? t().read_only_member : t().read_only_banner;
+  };
 
   const bundle = createLoader(() => api.settings());
   onMount(() => {
@@ -140,11 +155,22 @@ export default function Settings() {
               </div>
             </header>
 
-            <Show when={!isAdmin() && section() !== "security"}>
-              <div class="callout info">
-                <SIcon name="lock" size={16} />
-                <span>{t().read_only_banner}</span>
+            <Show when={perPortfolio() && currentPortfolio()}>
+              <div class="callout info settings-scope">
+                <SIcon name="briefcase" size={16} />
+                <span>{tpl(t().portfolio_scope, { name: portfolioName() })}</span>
+                <A class="btn sm" href="/portfolios">
+                  {portfoliosText().actions.manage}
+                </A>
               </div>
+            </Show>
+            <Show when={readOnlyNote()}>
+              {(note) => (
+                <div class="callout info">
+                  <SIcon name="lock" size={16} />
+                  <span>{note()}</span>
+                </div>
+              )}
             </Show>
 
             <Switch>

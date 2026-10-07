@@ -11,7 +11,7 @@ import { Match, Switch, createMemo, createSignal, onCleanup, onMount } from "sol
 import { Icon } from "@/components/Icon";
 import { common } from "@/i18n/common";
 import { tradesText } from "@/i18n/trades";
-import { onServerEvent } from "@/lib/events";
+import { onPortfolioEvent } from "@/lib/portfolio";
 import { LiveBadge, TabBar } from "./activity/components";
 import { FillsTab } from "./activity/fills";
 import { LedgerTab } from "./activity/ledger";
@@ -50,7 +50,7 @@ export default function Trades() {
   const [tick, setTick] = createSignal(0);
   onMount(() => {
     const bump = debounce(() => setTick((n) => n + 1), 700);
-    const off = onServerEvent(["plan", "account"], () => bump());
+    const off = onPortfolioEvent(["plan", "account"], () => bump());
     onCleanup(() => {
       off();
       bump.cancel();

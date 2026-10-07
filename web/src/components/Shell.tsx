@@ -1,17 +1,24 @@
 import { A, useLocation, useNavigate } from "@solidjs/router";
-import { For, type ParentProps, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, type ParentProps, Show, createComputed, createEffect, createMemo, createSignal, lazy, on, onCleanup, onMount } from "solid-js";
 import { locale, setLocale, tpl } from "@/i18n";
 import { common } from "@/i18n/common";
+import { portfoliosText } from "@/i18n/portfolios";
 import { shellText } from "@/i18n/shell";
 import { api } from "@/lib/api";
 import { withBase } from "@/lib/base";
 import { connectEvents, connected, onServerEvent } from "@/lib/events";
 import { fmtCountdown, fmtDual, fmtTime, MARKET_TZ, zoneLabel } from "@/lib/format";
+import { canTrade, currentPortfolio, noPortfolio, onPortfolioEvent, resetPortfolios, selectPortfolio, selectedId, watchPortfolios } from "@/lib/portfolio";
+import { takePortfolioParam } from "@/lib/portfolio-select";
 import { displayTz, setThemePref, setUpDown, themePref, upDown, type ThemePref, type UpDown } from "@/lib/prefs";
-import { isAdmin, market, me, meta, refreshMarket, refreshUnread, serverNow, signedOut, startClock, unread } from "@/lib/session";
+import { market, me, meta, refreshMarket, refreshUnread, serverNow, signedOut, startClock, unread } from "@/lib/session";
 import type { AutomationMode } from "@/lib/types";
 import { Icon, type IconName } from "./Icon";
+import { NoPortfolio } from "./NoPortfolio";
+import { PortfolioSwitcher } from "./PortfolioSwitcher";
 import { ConfirmHost, Popover, Segmented, Toasts, confirmAction, toast, toastError } from "./ui";
+
+const NewPortfolioDialog = lazy(() => import("@/pages/portfolios/NewPortfolioDialog"));
 
 interface NavItem {
   href: string;
@@ -29,6 +36,7 @@ function navGroups(): { label: () => string; items: NavItem[] }[] {
         { href: "/", icon: "overview", label: () => c().nav.overview },
         { href: "/plans", icon: "plans", label: () => c().nav.plans },
         { href: "/trades", icon: "trades", label: () => c().nav.trades },
+        { href: "/portfolios", icon: "briefcase", label: () => c().nav.portfolios },
       ],
     },
     {
@@ -55,6 +63,12 @@ function navGroups(): { label: () => string; items: NavItem[] }[] {
     },
   ];
 }
+
+/** Bottom navigation on phones. */
+const MOBILE_NAV = ["/", "/plans", "/strategy", "/performance", "/settings"];
+
+/** Pages that work without any portfolio: creating the first one, and changing one's password. */
+const PORTFOLIO_FREE = ["/portfolios", "/settings/security"];
 
 function isActive(path: string, href: string) {
   return href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`);
@@ -97,7 +111,14 @@ function MarketPill() {
     <div class="market-pill" title={market()?.holiday ? tpl(shellText().next.holiday, { name: locale() === "zh" ? market()!.holiday!.name_zh : market()!.holiday!.name_en }) : undefined}>
       <span class={`phase ${phaseClass()}`}>
         <span class="dot" />
-        {market() ? c().phase[market()!.phase] : "…"}
+        <Show when={market()} fallback="…">
+          {(m) => (
+            <>
+              <span class="phase-long">{c().phase[m().phase]}</span>
+              <span class="phase-short">{c().phase_short[m().phase]}</span>
+            </>
+          )}
+        </Show>
       </span>
       <span class="sep" />
       <span class="clock">
@@ -127,7 +148,10 @@ function AutomationControl() {
   const mode = () => market()?.effective_mode ?? "auto";
   const tone = () => (mode() === "auto" ? "green" : mode() === "approval" ? "blue" : "yellow");
   const change = async (next: AutomationMode, pausedUntil: string | null = null) => {
-    const body = next === "auto" ? s().automation.confirm_auto : next === "approval" ? s().automation.confirm_approval : s().automation.confirm_paused;
+    const body = [
+      next === "auto" ? s().automation.confirm_auto : next === "approval" ? s().automation.confirm_approval : s().automation.confirm_paused,
+      tpl(s().automation.scope, { name: currentPortfolio()?.name ?? "" }),
+    ].join("\n\n");
     const note = await confirmAction({ title: s().automation.change_title, body, askReason: true, reasonLabel: c().words.note });
     if (note === null) return;
     try {
@@ -147,7 +171,7 @@ function AutomationControl() {
     <Popover
       width={300}
       trigger={(toggle) => (
-        <button class={`chip ${tone()}`} style={{ height: "30px", padding: "0 12px", cursor: "pointer", border: 0 }} onClick={toggle} disabled={!isAdmin()} title={c().mode[`${mode()}_hint` as const]}>
+        <button class={`chip ${tone()}`} style={{ height: "30px", padding: "0 12px", cursor: "pointer", border: 0 }} onClick={toggle} disabled={!canTrade()} title={c().mode[`${mode()}_hint` as const]}>
           <Icon name={mode() === "paused" ? "pause" : "zap"} size={13} />
           <span class="hide-sm">{c().mode[mode()]}</span>
         </button>
@@ -161,6 +185,7 @@ function AutomationControl() {
           options={(["auto", "approval", "paused"] as AutomationMode[]).map((m) => ({ value: m, label: c().mode[m], title: c().mode[`${m}_hint` as const] }))}
         />
         <p class="muted xs">{c().mode[`${mode()}_hint` as const]}</p>
+        <Show when={currentPortfolio()}>{(p) => <p class="xs">{tpl(s().automation.scope, { name: p().name })}</p>}</Show>
         <Show when={market()?.automation.paused_until}>
           <p class="xs">{tpl(s().automation.pause_until, { time: fmtDual(market()!.automation.paused_until, true) })}</p>
         </Show>
@@ -224,6 +249,7 @@ function UserMenu() {
       /* already signed out */
     }
     signedOut();
+    resetPortfolios();
     navigate("/login", { replace: true });
   };
   return (
@@ -239,7 +265,7 @@ function UserMenu() {
         <div class="muted xs">{shellText().user.signed_in_as}</div>
         <div style={{ "font-weight": 650 }}>{me()?.display_name ?? me()?.username}</div>
         <span class="chip outline" style={{ "margin-top": "6px" }}>
-          {me()?.role === "admin" ? shellText().user.role_admin : shellText().user.role_viewer}
+          {c().roles[me()?.role ?? "viewer"]}
         </span>
         <Show when={me()?.external}>
           <div class="muted xs" style={{ "margin-top": "6px" }}>
@@ -269,7 +295,9 @@ function UserMenu() {
 
 export function Shell(props: ParentProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const c = common;
+  const [creating, setCreating] = createSignal(false);
   const groups = navGroups();
   const allItems = groups.flatMap((g) => g.items);
   const title = createMemo(() => {
@@ -278,13 +306,43 @@ export function Shell(props: ParentProps) {
     return match?.label() ?? "";
   });
 
+  // Links may name a portfolio (`?portfolio=3`, e.g. from notifications): adopt it before the page
+  // renders, then drop the parameter from the address.
+  createComputed(
+    on(
+      () => location.search,
+      (search) => {
+        const param = takePortfolioParam(search);
+        if (!param) return;
+        if (param.id !== null && param.id !== selectedId() && !selectPortfolio(param.id)) {
+          toast(portfoliosText().not_available, undefined, "warning");
+        }
+        const target = `${location.pathname}${param.search}${location.hash}`;
+        queueMicrotask(() => navigate(target, { replace: true, scroll: false }));
+      },
+    ),
+  );
+
+  // The top bar follows the selected portfolio.
+  createEffect(
+    on(
+      selectedId,
+      () => {
+        void refreshMarket();
+        void refreshUnread();
+      },
+      { defer: true },
+    ),
+  );
+
   onMount(() => {
     startClock();
     connectEvents();
     refreshMarket();
     refreshUnread();
     const timer = setInterval(refreshMarket, 30_000);
-    const off = onServerEvent(["plan", "settings", "strategy", "account"], () => refreshMarket());
+    const offPortfolios = watchPortfolios();
+    const off = onPortfolioEvent(["plan", "settings", "strategy", "account"], () => refreshMarket());
     const offNotify = onServerEvent(["notification"], (event) => {
       refreshUnread();
       if (event.type === "notification") {
@@ -295,12 +353,14 @@ export function Shell(props: ParentProps) {
     });
     onCleanup(() => {
       clearInterval(timer);
+      offPortfolios();
       off();
       offNotify();
     });
   });
 
-  const mobileItems = () => [allItems[0], allItems[1], allItems[3], allItems[6], allItems[9]];
+  const mobileItems = () => MOBILE_NAV.map((href) => allItems.find((item) => item.href === href)!);
+  const showPage = () => !noPortfolio() || PORTFOLIO_FREE.some((href) => isActive(location.pathname, href));
 
   return (
     <div class="shell">
@@ -354,10 +414,13 @@ export function Shell(props: ParentProps) {
           </div>
         </Show>
         <header class="topbar">
+          <PortfolioSwitcher onCreate={() => setCreating(true)} />
           <div class="title">{title()}</div>
           <div class="spacer" />
           <MarketPill />
-          <AutomationControl />
+          <Show when={!noPortfolio()}>
+            <AutomationControl />
+          </Show>
           <A href="/notifications" class="btn ghost icon" aria-label={c().nav.notifications} style={{ position: "relative" }}>
             <Icon name="bell" />
             <Show when={unread() > 0}>
@@ -385,7 +448,14 @@ export function Shell(props: ParentProps) {
           <PrefsMenu />
           <UserMenu />
         </header>
-        <main class="content">{props.children}</main>
+        <main class="content">
+          <Show when={showPage()} fallback={<NoPortfolio onCreate={() => setCreating(true)} />}>
+            {/* Keyed on the portfolio: switching remounts the page, so it refetches everything. */}
+            <Show when={String(selectedId() ?? "default")} keyed>
+              {(_portfolio) => props.children}
+            </Show>
+          </Show>
+        </main>
       </div>
       <nav class="mobile-nav" aria-label="Mobile">
         <For each={mobileItems()}>
@@ -397,6 +467,9 @@ export function Shell(props: ParentProps) {
           )}
         </For>
       </nav>
+      <Show when={creating()}>
+        <NewPortfolioDialog onClose={() => setCreating(false)} />
+      </Show>
       <Toasts />
       <ConfirmHost />
     </div>

@@ -196,7 +196,7 @@ function PasswordSection() {
           <div class="sub">
             {tpl(t().security.sub, { user: me()?.username ?? "" })}
             {" · "}
-            {me()?.role === "admin" ? t().users.role_admin : t().users.role_viewer}
+            {common().roles[me()?.role ?? "viewer"]}
           </div>
         </div>
       </div>

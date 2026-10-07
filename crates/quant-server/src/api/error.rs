@@ -15,6 +15,10 @@ pub enum ApiError {
     Forbidden(String),
     NotFound(String),
     Conflict(String),
+    /// The selected portfolio does not exist, is archived, or is not visible to the user.
+    PortfolioNotFound,
+    /// The user cannot see any active portfolio.
+    NoPortfolio,
     /// Seconds until the caller may retry.
     TooManyRequests(u64),
     Unavailable(String),
@@ -79,6 +83,14 @@ impl IntoResponse for ApiError {
             ApiError::Conflict(message) => (
                 StatusCode::CONFLICT,
                 json!({"error": "conflict", "message": message}),
+            ),
+            ApiError::PortfolioNotFound => (
+                StatusCode::NOT_FOUND,
+                json!({"error": "portfolio_not_found", "message": "that portfolio does not exist or is not available"}),
+            ),
+            ApiError::NoPortfolio => (
+                StatusCode::NOT_FOUND,
+                json!({"error": "no_portfolio", "message": "no portfolio is available; create one first"}),
             ),
             ApiError::TooManyRequests(retry) => (
                 StatusCode::TOO_MANY_REQUESTS,

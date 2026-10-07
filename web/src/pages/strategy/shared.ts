@@ -8,6 +8,7 @@ import { common } from "@/i18n/common";
 import { strategyText } from "@/i18n/strategy";
 import { api } from "@/lib/api";
 import { fmtDual } from "@/lib/format";
+import { currentPortfolio } from "@/lib/portfolio";
 import { market } from "@/lib/session";
 import type { MarketView, Plan, Slot } from "@/lib/types";
 import { strategyName } from "@/lib/names";
@@ -55,6 +56,8 @@ export async function activationBody(name: string, id: number | null, now: numbe
   const pending = await pendingPlans();
   const next = nextPlan(m, now);
   const lines = [id === null ? tpl(t.intro_new, { name }) : tpl(t.intro, { name, id })];
+  const portfolio = currentPortfolio();
+  if (portfolio) lines.push(tpl(t.scope, { name: portfolio.name }));
   lines.push(tpl(t.next, { detail: next ? tpl(t.next_detail, { slot: c.slot[next.slot], time: fmtDual(next.at, true) }) : "" }));
   lines.push(
     tpl(t.pending, {

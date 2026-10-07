@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use crate::notify::{self, Event};
 use crate::services::marketdata;
 use crate::state::{AppState, ServerEvent};
+use crate::store::portfolios;
 use crate::store::settings::{self, AutomationMode, ExecutionSettings};
 use crate::store::strategy::{self as strategy_store, StrategyVersion};
 use crate::store::trading::{self, Account, NewPlan, dec, f};
@@ -128,9 +129,11 @@ impl Proposal {
     }
 }
 
-/// Builds targets and orders for `trade_date` using live quotes and history strictly before it.
+/// Builds an account's targets and orders for `trade_date` using live quotes and history strictly
+/// before it.
 pub async fn build_proposal(
     state: &AppState,
+    account: &Account,
     params: &StrategyParams,
     trade_date: NaiveDate,
 ) -> Result<Proposal> {
@@ -138,11 +141,14 @@ pub async fn build_proposal(
         .validate()
         .map_err(|errors| anyhow!("invalid strategy parameters: {}", errors[0].message))?;
     let client = state.pool.get().await?;
-    let account = trading::require_active_account(&client).await?;
+    let account = trading::account(&client, account.id)
+        .await?
+        .ok_or_else(|| anyhow!("account {} not found", account.id))?;
     let execution: ExecutionSettings = settings::get(&client, settings::EXECUTION).await?;
     let universe = market::assets(&client, true).await?;
     let positions = trading::positions(&client, account.id, false).await?;
-    let restrictions = strategy_store::active_restrictions(&client, trade_date).await?;
+    let restrictions =
+        strategy_store::active_restrictions(&client, trade_date, account.portfolio_id).await?;
     drop(client);
 
     let held: HashMap<String, Decimal> = positions
@@ -380,12 +386,17 @@ pub struct GeneratedPlan {
     pub orders: usize,
 }
 
-/// Generates and persists a plan. For scheduled slots this is idempotent: if a plan for the
-/// slot already exists it is returned unchanged.
-pub async fn generate(state: &Arc<AppState>, request: PlanRequest) -> Result<GeneratedPlan> {
+/// Generates and persists a plan for a portfolio. For scheduled slots this is idempotent: if a
+/// plan for the slot already exists it is returned unchanged.
+pub async fn generate(
+    state: &Arc<AppState>,
+    portfolio_id: i64,
+    request: PlanRequest,
+) -> Result<GeneratedPlan> {
     let _guard = state.trading_lock.lock().await;
     let client = state.pool.get().await?;
-    let account = trading::require_active_account(&client).await?;
+    let book = portfolios::book(&client, portfolio_id).await?;
+    let account = book.account.clone();
     if request.slot != "manual"
         && let Some(existing) =
             trading::plan_for_slot(&client, account.id, request.trade_date, &request.slot).await?
@@ -400,13 +411,11 @@ pub async fn generate(state: &Arc<AppState>, request: PlanRequest) -> Result<Gen
         .await?
         .ok_or_else(|| anyhow!("no active strategy"))?;
     let params = version.strategy_params()?;
-    let automation: settings::AutomationSettings =
-        settings::get(&client, settings::AUTOMATION).await?;
     let schedule = settings::schedule(&client).await?;
     drop(client);
 
-    let mode = automation.effective_mode(state.now());
-    let proposal = build_proposal(state, &params, request.trade_date).await?;
+    let mode = book.portfolio.automation.effective_mode(state.now());
+    let proposal = build_proposal(state, &account, &params, request.trade_date).await?;
     let now = state.now();
     let has_orders = !proposal.plan.orders.is_empty();
     let status = if has_orders { "pending" } else { "no_action" };
@@ -488,7 +497,7 @@ pub async fn generate(state: &Arc<AppState>, request: PlanRequest) -> Result<Gen
         "plan.generated",
         "plan",
         &plan_id.to_string(),
-        json!({"slot": request.slot, "trade_date": request.trade_date, "orders": proposal.plan.orders.len(), "strategy_version_id": version.id, "mode": mode.as_str()}),
+        json!({"slot": request.slot, "trade_date": request.trade_date, "orders": proposal.plan.orders.len(), "strategy_version_id": version.id, "mode": mode.as_str(), "portfolio_id": portfolio_id}),
         "",
     )
     .await?;
@@ -508,6 +517,7 @@ pub async fn generate(state: &Arc<AppState>, request: PlanRequest) -> Result<Gen
     state.emit(ServerEvent::Plan {
         plan_id,
         status: status.into(),
+        portfolio_id,
     });
     let event = if has_orders {
         Event::PlanGenerated {
@@ -530,7 +540,7 @@ pub async fn generate(state: &Arc<AppState>, request: PlanRequest) -> Result<Gen
             slot: request.slot.clone(),
         }
     };
-    if let Err(error) = notify::notify(state, event).await {
+    if let Err(error) = notify::notify_in(state, &book.portfolio.tag(), event).await {
         tracing::warn!(%error, "plan notification failed");
     }
     Ok(GeneratedPlan {
@@ -540,19 +550,20 @@ pub async fn generate(state: &Arc<AppState>, request: PlanRequest) -> Result<Gen
     })
 }
 
-/// Records that a scheduled slot produced no plan (paused, cancelled by an operator, or missed
-/// while the service was down) so the history has no silent gaps.
+/// Records that a portfolio's scheduled slot produced no plan (paused, cancelled by an operator,
+/// or missed while the service was down) so the history has no silent gaps.
 pub async fn record_skipped_slot(
     state: &Arc<AppState>,
+    portfolio_id: i64,
     trade_date: NaiveDate,
     slot: &str,
     reason: &str,
     deadline: DateTime<Utc>,
 ) -> Result<Option<i64>> {
     let client = state.pool.get().await?;
-    let account = trading::require_active_account(&client).await?;
-    let automation: settings::AutomationSettings =
-        settings::get(&client, settings::AUTOMATION).await?;
+    let book = portfolios::book(&client, portfolio_id).await?;
+    let account = &book.account;
+    let automation = &book.portfolio.automation;
     let version = strategy_store::active_version(&client, account.id).await?;
     let plan_id = trading::insert_plan(
         &client,
@@ -586,9 +597,11 @@ pub async fn record_skipped_slot(
         state.emit(ServerEvent::Plan {
             plan_id: id,
             status: "skipped".into(),
+            portfolio_id,
         });
-        let _ = notify::notify(
+        let _ = notify::notify_in(
             state,
+            &book.portfolio.tag(),
             Event::SlotSkipped {
                 trade_date,
                 slot: slot.to_string(),

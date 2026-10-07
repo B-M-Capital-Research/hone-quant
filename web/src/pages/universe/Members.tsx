@@ -4,7 +4,7 @@ import { Empty, Segmented, WeightBar } from "@/components/ui";
 import { locale, tpl } from "@/i18n";
 import { universeText } from "@/i18n/universe";
 import { DASH, fmtDual, fmtMoney, fmtQty, fmtWeight } from "@/lib/format";
-import { isAdmin } from "@/lib/session";
+import { canTrade } from "@/lib/portfolio";
 import type { Asset, Restriction, UniverseView } from "@/lib/types";
 import { type SectorRow, type Weights, modeText, otherName, pickText, sectorNameOf } from "./helpers";
 
@@ -393,7 +393,7 @@ export function CompaniesTable(props: {
                                         </div>
                                       )}
                                     </Show>
-                                    <Show when={isAdmin() && !restriction()}>
+                                    <Show when={canTrade() && !restriction()}>
                                       <div>
                                         <button
                                           class="btn sm"

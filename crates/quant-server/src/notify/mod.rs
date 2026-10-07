@@ -18,6 +18,7 @@ use quant_core::strategy::version_display_names;
 use serde_json::{Value, json};
 
 use crate::state::{AppState, ServerEvent};
+use crate::store::portfolios::{self, PortfolioRef};
 use crate::store::settings::{self, ChannelMap, DisplaySettings, Lang, NotificationSettings};
 use crate::store::system::{self, NotificationRow};
 use channels::{ChannelConfig, OutboundMessage, Severity};
@@ -221,7 +222,8 @@ pub enum Event {
         trade_date: NaiveDate,
         open_at: DateTime<Utc>,
         slots: Vec<(String, DateTime<Utc>)>,
-        mode: String,
+        /// Automation mode of each active portfolio: (portfolio name, mode).
+        modes: Vec<(String, String)>,
     },
     Reminder {
         title: String,
@@ -690,8 +692,18 @@ pub fn render(event: &Event, display: &DisplaySettings) -> Rendered {
             trade_date,
             open_at,
             slots,
-            mode,
+            modes,
         } => {
+            let modes_in = |lang: Lang| -> String {
+                match modes.as_slice() {
+                    [(_, mode)] => mode_name(mode, lang).to_string(),
+                    _ => modes
+                        .iter()
+                        .map(|(name, mode)| format!("{name} {}", mode_name(mode, lang)))
+                        .collect::<Vec<_>>()
+                        .join(if lang == Zh { "、" } else { ", " }),
+                }
+            };
             let zh_slots: Vec<String> = slots
                 .iter()
                 .map(|(s, at)| format!("{} {}", slot_name(s, Zh), dual_time(*at, display)))
@@ -713,14 +725,20 @@ pub fn render(event: &Event, display: &DisplaySettings) -> Rendered {
                     dual_time(*open_at, display)
                 ),
                 body_zh: format!(
-                    "今日计划：{}。当前模式：{}。如需取消今日交易，请在计划生成前操作。",
+                    "今日计划：{}。{}：{}。如需取消今日交易，请在计划生成前操作。",
                     zh_slots.join("；"),
-                    mode_name(mode, Zh)
+                    if modes.len() > 1 {
+                        "各组合模式"
+                    } else {
+                        "当前模式"
+                    },
+                    modes_in(Zh)
                 ),
                 body_en: format!(
-                    "Today's plans: {}. Mode: {}. To cancel today's trading, do it before the plans are generated.",
+                    "Today's plans: {}. {}: {}. To cancel today's trading, do it before the plans are generated.",
                     en_slots.join("; "),
-                    mode_name(mode, En)
+                    if modes.len() > 1 { "Modes" } else { "Mode" },
+                    modes_in(En)
                 ),
                 params: json!({"trade_date": trade_date}),
                 link: Some("/".into()),
@@ -922,14 +940,57 @@ async fn deliver_all(state: &AppState, message: &OutboundMessage) -> Vec<Value> 
     results
 }
 
-/// Records an event, pushes it to browsers and (in the background) to outbound channels.
+/// Records an event that is not about one portfolio, pushes it to browsers and (in the
+/// background) to outbound channels.
 pub async fn notify(state: &std::sync::Arc<AppState>, event: Event) -> Result<i64> {
+    record(state, None, event).await
+}
+
+/// Like [`notify`], for an event about one portfolio. With more than one active portfolio the
+/// title names it; the link always carries it, so the web app opens that portfolio.
+pub async fn notify_in(
+    state: &std::sync::Arc<AppState>,
+    portfolio: &PortfolioRef,
+    event: Event,
+) -> Result<i64> {
+    record(state, Some(portfolio), event).await
+}
+
+/// `path` with `portfolio=<id>` added to its query.
+fn link_in(path: &str, portfolio_id: i64) -> String {
+    let separator = if path.contains('?') { '&' } else { '?' };
+    format!("{path}{separator}portfolio={portfolio_id}")
+}
+
+/// Names the portfolio in a rendered event (see [`notify_in`]).
+fn tag_portfolio(rendered: &mut Rendered, portfolio: &PortfolioRef, name_in_title: bool) {
+    if name_in_title {
+        rendered.title_zh = format!("[{}] {}", portfolio.name, rendered.title_zh);
+        rendered.title_en = format!("[{}] {}", portfolio.name, rendered.title_en);
+    }
+    if let Value::Object(params) = &mut rendered.params {
+        params.insert("portfolio_id".into(), json!(portfolio.id));
+        params.insert("portfolio".into(), json!(portfolio.name));
+    }
+    rendered.link = rendered.link.as_deref().map(|l| link_in(l, portfolio.id));
+}
+
+async fn record(
+    state: &std::sync::Arc<AppState>,
+    portfolio: Option<&PortfolioRef>,
+    event: Event,
+) -> Result<i64> {
     let client = state.pool.get().await?;
     let display: DisplaySettings = settings::get(&client, settings::DISPLAY).await?;
     let prefs: NotificationSettings = settings::get(&client, settings::NOTIFICATIONS).await?;
-    let rendered = render(&event, &display);
+    let mut rendered = render(&event, &display);
+    if let Some(portfolio) = portfolio {
+        let several = portfolios::active_count(&client).await? > 1;
+        tag_portfolio(&mut rendered, portfolio, several);
+    }
     let row = system::insert_notification(
         &client,
+        portfolio.map(|p| p.id),
         rendered.kind,
         rendered.category,
         rendered.severity.as_str(),
@@ -946,6 +1007,7 @@ pub async fn notify(state: &std::sync::Arc<AppState>, event: Event) -> Result<i6
         category: row.category.clone(),
         title_zh: row.title_zh.clone(),
         title_en: row.title_en.clone(),
+        portfolio_id: row.portfolio_id,
     });
 
     let wanted = prefs.category_enabled(&row.category)
@@ -1051,6 +1113,26 @@ pub async fn flush_deferred(state: &std::sync::Arc<AppState>) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn portfolio_notifications_name_the_portfolio_and_link_into_it() {
+        let display = DisplaySettings::default();
+        let portfolio = PortfolioRef {
+            id: 3,
+            name: "Alice".into(),
+        };
+        let mut rendered = render(&Event::DataStale { minutes: 5 }, &display);
+        let title = rendered.title_en.clone();
+        tag_portfolio(&mut rendered, &portfolio, false);
+        assert_eq!(rendered.title_en, title, "a single portfolio is not named");
+        assert_eq!(rendered.params["portfolio_id"], 3);
+        let mut rendered = render(&Event::DataStale { minutes: 5 }, &display);
+        tag_portfolio(&mut rendered, &portfolio, true);
+        assert_eq!(rendered.title_en, format!("[Alice] {title}"));
+        assert!(rendered.title_zh.starts_with("[Alice] "));
+        assert_eq!(link_in("/plans/7", 3), "/plans/7?portfolio=3");
+        assert_eq!(link_in("/?tab=x", 3), "/?tab=x&portfolio=3");
+    }
     use super::*;
 
     #[test]
@@ -1188,7 +1270,7 @@ mod tests {
                 trade_date: date,
                 open_at: now,
                 slots: vec![("open".into(), now)],
-                mode: "auto".into(),
+                modes: vec![("Main".into(), "auto".into())],
             },
             Event::Reminder {
                 title: "t".into(),

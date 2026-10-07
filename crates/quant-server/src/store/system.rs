@@ -362,9 +362,17 @@ pub struct NotificationRow {
     pub read_at: Option<DateTime<Utc>>,
     pub deliveries: Value,
     pub deferred: bool,
+    /// The portfolio the notification is about; `None` for the whole system.
+    pub portfolio_id: Option<i64>,
+    pub portfolio_name: Option<String>,
 }
 
-const NOTIFICATION_COLUMNS: &str = "id, ts, kind, category, severity, title_zh, title_en, body_zh, body_en, params, link, read_at, deliveries, deferred";
+const NOTIFICATION_COLUMNS: &str = "id, ts, kind, category, severity, title_zh, title_en, body_zh, body_en, params, link, read_at, deliveries, deferred,
+    portfolio_id, (SELECT name FROM portfolios WHERE portfolios.id = notifications.portfolio_id) AS portfolio_name";
+
+/// The portfolios whose notifications a reader may see; `None` = all of them. Notifications that
+/// are not about a portfolio are visible to everyone.
+pub type PortfolioScope<'a> = Option<&'a [i64]>;
 
 fn notification_from_row(r: &Row) -> NotificationRow {
     NotificationRow {
@@ -382,12 +390,15 @@ fn notification_from_row(r: &Row) -> NotificationRow {
         read_at: r.get(11),
         deliveries: r.get(12),
         deferred: r.get(13),
+        portfolio_id: r.get(14),
+        portfolio_name: r.get(15),
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_notification(
     client: &impl GenericClient,
+    portfolio_id: Option<i64>,
     kind: &str,
     category: &str,
     severity: &str,
@@ -399,10 +410,10 @@ pub async fn insert_notification(
     let row = client
         .query_one(
             &format!(
-                "INSERT INTO notifications (kind, category, severity, title_zh, title_en, body_zh, body_en, params, link)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING {NOTIFICATION_COLUMNS}"
+                "INSERT INTO notifications (kind, category, severity, title_zh, title_en, body_zh, body_en, params, link, portfolio_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING {NOTIFICATION_COLUMNS}"
             ),
-            &[&kind, &category, &severity, &title.0, &title.1, &body.0, &body.1, params, &link],
+            &[&kind, &category, &severity, &title.0, &title.1, &body.0, &body.1, params, &link, &portfolio_id],
         )
         .await?;
     Ok(notification_from_row(&row))
@@ -440,38 +451,53 @@ pub struct NotificationFilter {
     pub limit: i64,
 }
 
+const IN_SCOPE: &str = "($1::bigint[] IS NULL OR portfolio_id IS NULL OR portfolio_id = ANY($1))";
+
 pub async fn notifications(
     client: &impl GenericClient,
+    scope: PortfolioScope<'_>,
     filter: &NotificationFilter,
 ) -> Result<Vec<NotificationRow>> {
+    let scope = scope.map(<[i64]>::to_vec);
     let rows = client
         .query(
             &format!(
                 "SELECT {NOTIFICATION_COLUMNS} FROM notifications
-                 WHERE (NOT $1 OR read_at IS NULL) AND ($2::text IS NULL OR category = $2) AND ($3::bigint IS NULL OR id < $3)
-                 ORDER BY id DESC LIMIT $4"
+                 WHERE {IN_SCOPE} AND (NOT $2 OR read_at IS NULL) AND ($3::text IS NULL OR category = $3)
+                   AND ($4::bigint IS NULL OR id < $4)
+                 ORDER BY id DESC LIMIT $5"
             ),
-            &[&filter.unread_only, &filter.category, &filter.before, &filter.limit],
+            &[&scope, &filter.unread_only, &filter.category, &filter.before, &filter.limit],
         )
         .await?;
     Ok(rows.iter().map(notification_from_row).collect())
 }
 
-pub async fn unread_count(client: &impl GenericClient) -> Result<i64> {
+pub async fn unread_count(client: &impl GenericClient, scope: PortfolioScope<'_>) -> Result<i64> {
+    let scope = scope.map(<[i64]>::to_vec);
     Ok(client
         .query_one(
-            "SELECT count(*) FROM notifications WHERE read_at IS NULL",
-            &[],
+            &format!("SELECT count(*) FROM notifications WHERE {IN_SCOPE} AND read_at IS NULL"),
+            &[&scope],
         )
         .await?
         .get(0))
 }
 
-pub async fn mark_read(client: &impl GenericClient, id: Option<i64>) -> Result<u64> {
+/// Marks one notification, or every notification in scope, as read.
+pub async fn mark_read(
+    client: &impl GenericClient,
+    scope: PortfolioScope<'_>,
+    id: Option<i64>,
+) -> Result<u64> {
+    let scope = scope.map(<[i64]>::to_vec);
     Ok(client
         .execute(
-            "UPDATE notifications SET read_at = app_now() WHERE read_at IS NULL AND ($1::bigint IS NULL OR id = $1)",
-            &[&id],
+            &format!(
+                "UPDATE notifications SET read_at = app_now()
+                 WHERE {IN_SCOPE} AND read_at IS NULL AND ($2::bigint IS NULL OR id = $2)"
+            ),
+            &[&scope, &id],
         )
         .await?)
 }

@@ -135,7 +135,7 @@ pub async fn me(State(state): State<SharedState>, user: CurrentUser) -> Json<ser
             "id": user.id,
             "username": user.username,
             "display_name": user.display_name,
-            "role": if user.role == Role::Admin { "admin" } else { "viewer" },
+            "role": user.role.as_str(),
             "external": user.external,
         },
         "auth": auth_info(&state),
@@ -233,8 +233,8 @@ pub async fn create_user(
             "username must be 1–64 letters, digits, '.', '_' or '-'",
         ));
     }
-    if body.role != "admin" && body.role != "viewer" {
-        return Err(ApiError::bad("role must be admin or viewer"));
+    if !Role::ALL.contains(&body.role.as_str()) {
+        return Err(ApiError::bad("role must be admin, member or viewer"));
     }
     auth::check_password_strength(&body.password).map_err(ApiError::BadRequest)?;
     let client = state.pool.get().await?;

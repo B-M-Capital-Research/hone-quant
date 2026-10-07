@@ -8,6 +8,7 @@ import { universeText } from "@/i18n/universe";
 import { api } from "@/lib/api";
 import { onServerEvent } from "@/lib/events";
 import { marketToday } from "@/lib/format";
+import { canTrade, onPortfolioEvent } from "@/lib/portfolio";
 import { isAdmin, serverNow } from "@/lib/session";
 import type { UniverseView } from "@/lib/types";
 import { makeWeights, sectorRows } from "./universe/helpers";
@@ -39,12 +40,12 @@ export default function Universe() {
   let dashTimer: ReturnType<typeof setTimeout> | undefined;
   onMount(() => {
     const offUniverse = onServerEvent(["universe"], () => void refetchView());
-    const offSettings = onServerEvent(["settings"], (e) => {
+    const offSettings = onPortfolioEvent(["settings"], (e) => {
       if (e.type !== "settings" || e.key === "restrictions" || e.key === "benchmarks") {
         void refetchRestrictions();
       }
     });
-    const offAccount = onServerEvent(["plan", "account"], () => {
+    const offAccount = onPortfolioEvent(["plan", "account"], () => {
       clearTimeout(dashTimer);
       dashTimer = setTimeout(() => void refetchDashboard(), 1200);
     });
@@ -80,18 +81,18 @@ export default function Universe() {
           <h1>{t().title}</h1>
           <p class="lead">{t().lead}</p>
         </div>
-        <Show when={isAdmin()}>
-          <div class="row wrap">
-            <Show when={tab() !== "updates"}>
-              <button class="btn" onClick={() => setTab("updates")}>
-                <Icon name="refresh" size={15} /> {t().actions.check}
-              </button>
-            </Show>
+        <div class="row wrap">
+          <Show when={isAdmin() && tab() !== "updates"}>
+            <button class="btn" onClick={() => setTab("updates")}>
+              <Icon name="refresh" size={15} /> {t().actions.check}
+            </button>
+          </Show>
+          <Show when={canTrade()}>
             <button class="btn primary" onClick={() => setAddFor("")} disabled={!data()}>
               <Icon name="plus" size={15} /> {t().actions.add_restriction}
             </button>
-          </div>
-        </Show>
+          </Show>
+        </div>
       </div>
 
       <div class="tabs uv-tabs" role="tablist" aria-label={t().title}>

@@ -10,6 +10,9 @@ import type { Role, User } from "@/lib/types";
 import { type Errors, Field, Gate, HoneclawAccountsNote, SIcon, createLoader, focusFirstInvalid } from "./shared";
 import { PasswordInput, passwordProblems } from "./Security";
 
+const ROLES: Role[] = ["viewer", "member", "admin"];
+const ROLE_TONE: Record<Role, string> = { admin: "orange", member: "blue", viewer: "" };
+
 export default function UsersSection() {
   const t = settingsText;
   return (
@@ -101,7 +104,7 @@ function UsersCard() {
                           </span>
                         </td>
                         <td>
-                          <span class={`chip ${u.role === "admin" ? "orange" : ""}`}>{u.role === "admin" ? t().users.role_admin : t().users.role_viewer}</span>
+                          <span class={`chip ${ROLE_TONE[u.role] ?? ""}`}>{c().roles[u.role] ?? u.role}</span>
                         </td>
                         <td class="num small nowrap col-created">{fmtDateTime(u.created_at)}</td>
                         <td class="small nowrap" title={u.last_login_at ? fmtDateTime(u.last_login_at) : undefined}>
@@ -130,14 +133,14 @@ function UsersCard() {
       </div>
       <div class="card">
         <div class="card-body roles-explainer">
-          <div class="role-line">
-            <span class="chip orange">{t().users.role_admin}</span>
-            <span class="small subtle">{t().users.role_admin_body}</span>
-          </div>
-          <div class="role-line">
-            <span class="chip">{t().users.role_viewer}</span>
-            <span class="small subtle">{t().users.role_viewer_body}</span>
-          </div>
+          <For each={[...ROLES].reverse()}>
+            {(r) => (
+              <div class="role-line">
+                <span class={`chip ${ROLE_TONE[r]}`}>{c().roles[r]}</span>
+                <span class="small subtle">{roleBody(r)}</span>
+              </div>
+            )}
+          </For>
         </div>
       </div>
       <Show when={adding()}>
@@ -149,6 +152,12 @@ function UsersCard() {
       </Show>
     </>
   );
+}
+
+/** One line on what a role may do. */
+function roleBody(role: Role): string {
+  const u = settingsText().users;
+  return role === "admin" ? u.role_admin_body : role === "member" ? u.role_member_body : u.role_viewer_body;
 }
 
 const USERNAME = /^[\p{L}\p{N}._-]+$/u;
@@ -275,13 +284,13 @@ function AddUserDialog(props: { existing: string[]; onClose: () => void; onCreat
         <div class="field">
           <span class="field-label">{t().users.role}</span>
           <div class="role-cards" role="radiogroup" aria-label={t().users.role}>
-            <For each={["viewer", "admin"] as Role[]}>
+            <For each={ROLES}>
               {(r) => (
                 <label class="role-card" classList={{ selected: role() === r }}>
                   <input type="radio" name="new-user-role" value={r} checked={role() === r} onChange={() => setRole(r)} />
                   <span>
-                    <b>{r === "admin" ? t().users.role_admin : t().users.role_viewer}</b>
-                    <span class="muted xs">{r === "admin" ? t().users.role_admin_body : t().users.role_viewer_body}</span>
+                    <b>{c().roles[r]}</b>
+                    <span class="muted xs">{roleBody(r)}</span>
                   </span>
                 </label>
               )}

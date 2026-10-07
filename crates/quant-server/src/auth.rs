@@ -22,6 +22,7 @@ use crate::api::error::ApiError;
 use crate::config::CookieSecurity;
 use crate::honeclaw_auth::{HoneclawVerifier, Verdict};
 use crate::state::SharedState;
+use crate::store::portfolios::Portfolio;
 use crate::store::system;
 
 pub const SESSION_COOKIE: &str = "hone_quant_session";
@@ -126,18 +127,32 @@ impl LoginLimiter {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
+    /// Every portfolio and every setting.
     Admin,
+    /// Creates and runs their own portfolios; reads what is shared.
+    Member,
+    /// Reads everything, changes nothing.
     Viewer,
 }
 
 impl Role {
     pub fn parse(value: &str) -> Self {
-        if value == "admin" {
-            Role::Admin
-        } else {
-            Role::Viewer
+        match value {
+            "admin" => Role::Admin,
+            "member" => Role::Member,
+            _ => Role::Viewer,
         }
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::Admin => "admin",
+            Role::Member => "member",
+            Role::Viewer => "viewer",
+        }
+    }
+
+    pub const ALL: [&'static str; 3] = ["admin", "member", "viewer"];
 }
 
 #[derive(Debug, Clone)]
@@ -153,6 +168,32 @@ pub struct CurrentUser {
     pub ip: String,
     /// Signed in through honeclaw rather than a hone-quant session.
     pub external: bool,
+}
+
+impl CurrentUser {
+    /// Members see only the portfolios they own; administrators and viewers see all of them.
+    pub fn can_view(&self, portfolio: &Portfolio) -> bool {
+        self.role != Role::Member || self.owns(portfolio)
+    }
+
+    /// Acting on a portfolio (plans, automation, restrictions, strategy, reset, rename, archive):
+    /// administrators on any active portfolio, members on their own.
+    pub fn can_trade(&self, portfolio: &Portfolio) -> bool {
+        portfolio.is_active()
+            && match self.role {
+                Role::Admin => true,
+                Role::Member => self.owns(portfolio),
+                Role::Viewer => false,
+            }
+    }
+
+    pub fn can_create_portfolio(&self) -> bool {
+        matches!(self.role, Role::Admin | Role::Member)
+    }
+
+    fn owns(&self, portfolio: &Portfolio) -> bool {
+        portfolio.owner.as_deref() == Some(self.username.as_str())
+    }
 }
 
 pub fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -390,6 +431,54 @@ mod tests {
             honeclaw_user(&verifier, &with_cookie("broken"), String::new()).await,
             Err(ApiError::Unavailable(_))
         ));
+    }
+
+    #[test]
+    fn roles_decide_which_portfolios_a_user_sees_and_runs() {
+        let portfolio = |owner: Option<&str>, status: &str| Portfolio {
+            id: 1,
+            name: "P".into(),
+            description: String::new(),
+            owner: owner.map(str::to_string),
+            owner_name: String::new(),
+            automation: Default::default(),
+            status: status.into(),
+            created_by: "x".into(),
+            created_at: chrono::Utc::now(),
+            archived_at: None,
+            archived_by: None,
+        };
+        let user = |name: &str, role: Role| CurrentUser {
+            id: 1,
+            username: name.into(),
+            display_name: name.into(),
+            role,
+            token_hash: String::new(),
+            ip: String::new(),
+            external: false,
+        };
+        let shared = portfolio(None, "active");
+        let alices = portfolio(Some("alice"), "active");
+        let archived = portfolio(Some("alice"), "archived");
+        let (admin, alice, bob, viewer) = (
+            user("root", Role::Admin),
+            user("alice", Role::Member),
+            user("bob", Role::Member),
+            user("val", Role::Viewer),
+        );
+        for p in [&shared, &alices] {
+            assert!(admin.can_view(p) && admin.can_trade(p));
+            assert!(viewer.can_view(p) && !viewer.can_trade(p));
+            assert!(!bob.can_view(p) && !bob.can_trade(p));
+        }
+        assert!(!alice.can_view(&shared) && !alice.can_trade(&shared));
+        assert!(alice.can_view(&alices) && alice.can_trade(&alices));
+        assert!(alice.can_view(&archived) && !alice.can_trade(&archived));
+        assert!(!admin.can_trade(&archived));
+        assert!(admin.can_create_portfolio() && alice.can_create_portfolio());
+        assert!(!viewer.can_create_portfolio());
+        assert_eq!(Role::parse("member"), Role::Member);
+        assert_eq!(Role::parse("anything else"), Role::Viewer);
     }
 
     #[test]

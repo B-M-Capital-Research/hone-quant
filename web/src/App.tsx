@@ -1,9 +1,10 @@
 import { Navigate, Route, Router, useLocation, useNavigate } from "@solidjs/router";
-import { type ParentProps, Show, createSignal, lazy, onMount } from "solid-js";
+import { type ParentProps, Show, createEffect, createSignal, lazy, onMount } from "solid-js";
 import { Shell } from "@/components/Shell";
 import { Loading } from "@/components/ui";
 import { onUnauthorized } from "@/lib/api";
 import { BASE } from "@/lib/base";
+import { loadPortfolios, portfoliosLoaded, resetPortfolios } from "@/lib/portfolio";
 import { loadMe, loadMeta, me, signedOut } from "@/lib/session";
 import Login from "@/pages/Login";
 
@@ -16,18 +17,27 @@ const Universe = lazy(() => import("@/pages/Universe"));
 const Backtests = lazy(() => import("@/pages/Backtests"));
 const BacktestDetail = lazy(() => import("@/pages/BacktestDetail"));
 const Performance = lazy(() => import("@/pages/Performance"));
+const Portfolios = lazy(() => import("@/pages/Portfolios"));
 const Notifications = lazy(() => import("@/pages/Notifications"));
 const Audit = lazy(() => import("@/pages/Audit"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
-/** Everything behind the login: waits for the session check, then renders the shell. */
+/**
+ * Everything behind the login: waits for the session check and the portfolio list (so the first
+ * page request already names the portfolio), then renders the shell.
+ */
 function Protected(props: ParentProps) {
   const location = useLocation();
+  createEffect(() => {
+    if (me() && !portfoliosLoaded()) void loadPortfolios();
+  });
   return (
     <Show when={me() !== undefined} fallback={<Loading />}>
       <Show when={me()} fallback={<Navigate href={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} />}>
-        <Shell>{props.children}</Shell>
+        <Show when={portfoliosLoaded()} fallback={<Loading />}>
+          <Shell>{props.children}</Shell>
+        </Show>
       </Show>
     </Show>
   );
@@ -40,11 +50,13 @@ function Root(props: ParentProps) {
   onMount(async () => {
     onUnauthorized(() => {
       signedOut();
+      resetPortfolios();
       if (location.pathname !== "/login") {
         navigate(`/login?next=${encodeURIComponent(location.pathname + location.search)}`, { replace: true });
       }
     });
-    await Promise.all([loadMeta(), loadMe()]);
+    const [, user] = await Promise.all([loadMeta(), loadMe()]);
+    if (user) await loadPortfolios();
     setReady(true);
   });
   return (
@@ -63,6 +75,7 @@ export function App() {
         <Route path="/plans" component={Plans} />
         <Route path="/plans/:id" component={PlanDetail} />
         <Route path="/trades" component={Trades} />
+        <Route path="/portfolios" component={Portfolios} />
         <Route path="/strategy" component={Strategy} />
         <Route path="/universe" component={Universe} />
         <Route path="/backtests" component={Backtests} />

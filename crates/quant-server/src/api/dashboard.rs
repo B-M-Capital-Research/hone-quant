@@ -13,11 +13,13 @@ use quant_core::stats;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::context::{self, MaybePortfolio, PortfolioCtx};
 use super::error::{ApiError, ApiResult};
 use crate::auth::CurrentUser;
 use crate::market::{DailyBar, Interval};
 use crate::services::{marketdata, portfolio};
 use crate::state::{AppState, SharedState};
+use crate::store::portfolios::Book;
 use crate::store::settings::{self, AutomationSettings, BenchmarkSettings, DisplaySettings};
 use crate::store::strategy::{self as strategy_store, SkippedSlot};
 use crate::store::trading::{self, Order, Plan};
@@ -85,22 +87,28 @@ pub struct MarketView {
     effective_mode: &'static str,
 }
 
-pub async fn market_view(state: &AppState) -> anyhow::Result<MarketView> {
+/// Market status and the session's schedule, with a portfolio's plans, cancelled slots and
+/// automation mode (defaults without a portfolio).
+pub async fn market_view(state: &AppState, book: Option<&Book>) -> anyhow::Result<MarketView> {
     let now = state.now();
     let status = state.calendar.status_at(now);
     let client = state.pool.get().await?;
     let schedule_settings = settings::schedule(&client).await?;
-    let automation: AutomationSettings = settings::get(&client, settings::AUTOMATION).await?;
+    let automation: AutomationSettings = book
+        .map(|b| b.portfolio.automation.clone())
+        .unwrap_or_default();
     let session = status
         .today
         .filter(|s| now < s.close + Duration::hours(8))
         .unwrap_or(status.next_session);
-    let account = trading::active_account(&client).await?;
-    let plans = match &account {
-        Some(a) => trading::plans_for_date(&client, a.id, session.date).await?,
-        None => Vec::new(),
+    let (plans, skipped) = match book {
+        Some(b) => (
+            trading::plans_for_date(&client, b.account.id, session.date).await?,
+            strategy_store::skipped_slots(&client, b.portfolio.id, session.date, session.date)
+                .await?,
+        ),
+        None => (Vec::new(), Vec::new()),
     };
-    let skipped = strategy_store::skipped_slots(&client, session.date, session.date).await?;
     let schedule = day_schedule(&session, &schedule_settings)
         .into_iter()
         .map(|slot| {
@@ -137,9 +145,9 @@ pub async fn market_view(state: &AppState) -> anyhow::Result<MarketView> {
 
 pub async fn market(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    context: MaybePortfolio,
 ) -> ApiResult<Json<MarketView>> {
-    Ok(Json(market_view(&state).await?))
+    Ok(Json(market_view(&state, context.book.as_ref()).await?))
 }
 
 #[derive(Serialize)]
@@ -151,11 +159,12 @@ pub struct PlanWithOrders {
 
 pub async fn dashboard(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    ctx: PortfolioCtx,
 ) -> ApiResult<Json<Value>> {
-    let market = market_view(&state).await?;
+    let market = market_view(&state, Some(&ctx.book)).await?;
+    let scope = context::visible_ids(&state, &ctx.user).await?;
     let client = state.pool.get().await?;
-    let valuation = portfolio::valuation(&state, &client).await?;
+    let valuation = portfolio::valuation(&state, &client, ctx.account()).await?;
     let account_id = valuation.account.id;
     let version = strategy_store::active_version(&client, account_id).await?;
     let targets = trading::latest_targets(&client, account_id).await?;
@@ -176,11 +185,14 @@ pub async fn dashboard(
         },
     )
     .await?;
-    let unread = system::unread_count(&client).await?;
+    let unread = system::unread_count(&client, scope.as_deref()).await?;
     let quotes = market::quotes(&client).await?;
-    let restrictions = strategy_store::active_restrictions(&client, market.schedule_date).await?;
+    let restrictions =
+        strategy_store::active_restrictions(&client, market.schedule_date, ctx.portfolio().id)
+            .await?;
     let last_quote = quotes.values().map(|q| q.fetched_at).max();
     Ok(Json(json!({
+        "portfolio": ctx.portfolio().tag(),
         "market": market,
         "valuation": valuation,
         "strategy": version.map(|v| json!({"id": v.id, "name": v.name, "preset_id": v.preset_id, "params": v.params, "created_at": v.created_at})),
@@ -301,7 +313,7 @@ fn with_live_bar(
 
 pub async fn board(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    ctx: PortfolioCtx,
     Query(query): Query<BoardQuery>,
 ) -> ApiResult<Json<Value>> {
     let period = query.period.unwrap_or_else(|| "1D".into());
@@ -318,7 +330,7 @@ pub async fn board(
     let panel =
         market::daily_ohlc_panel(&client, &symbols, start - Duration::days(10), last).await?;
     let quotes = market::quotes(&client).await?;
-    let valuation = portfolio::valuation(&state, &client).await?;
+    let valuation = portfolio::valuation(&state, &client, ctx.account()).await?;
     let weights: HashMap<&str, f64> = valuation
         .positions
         .iter()
@@ -390,7 +402,7 @@ pub struct BarsQuery {
 
 pub async fn bars(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    ctx: PortfolioCtx,
     Path(symbol): Path<String>,
     Query(query): Query<BarsQuery>,
 ) -> ApiResult<Json<Value>> {
@@ -415,7 +427,7 @@ pub async fn bars(
     let live = last == today && state.calendar.session(today).is_some_and(|s| now >= s.open);
     let quotes = market::quotes(&client).await?;
     let quote = quotes.get(&symbol);
-    let account = trading::require_active_account(&client).await?;
+    let account = ctx.account().clone();
     drop(client);
 
     let (interval, bars, sma50, sma200, from_ts) = match range.as_str() {

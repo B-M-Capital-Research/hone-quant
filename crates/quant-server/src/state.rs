@@ -27,9 +27,11 @@ pub enum ServerEvent {
     Plan {
         plan_id: i64,
         status: String,
+        portfolio_id: i64,
     },
     Account {
         reason: String,
+        portfolio_id: i64,
     },
     Notification {
         id: i64,
@@ -37,18 +39,46 @@ pub enum ServerEvent {
         category: String,
         title_zh: String,
         title_en: String,
+        portfolio_id: Option<i64>,
     },
     Backtest {
         id: i64,
         status: String,
     },
+    /// A settings section changed; `portfolio_id` for per-portfolio ones (automation,
+    /// restrictions, cancelled slots).
     Settings {
         key: String,
+        portfolio_id: Option<i64>,
     },
+    /// A strategy version was created (`portfolio_id: None`) or activated in a portfolio.
     Strategy {
         version_id: i64,
+        portfolio_id: Option<i64>,
+    },
+    /// A portfolio was created, renamed or archived.
+    Portfolios {
+        portfolio_id: i64,
     },
     Universe,
+}
+
+impl ServerEvent {
+    /// The portfolio the event is about, if any (events about a portfolio are only delivered
+    /// to users who can see it).
+    pub fn portfolio_id(&self) -> Option<i64> {
+        match self {
+            ServerEvent::Plan { portfolio_id, .. }
+            | ServerEvent::Account { portfolio_id, .. }
+            | ServerEvent::Portfolios { portfolio_id } => Some(*portfolio_id),
+            ServerEvent::Notification { portfolio_id, .. }
+            | ServerEvent::Settings { portfolio_id, .. }
+            | ServerEvent::Strategy { portfolio_id, .. } => *portfolio_id,
+            ServerEvent::Quotes { .. } | ServerEvent::Backtest { .. } | ServerEvent::Universe => {
+                None
+            }
+        }
+    }
 }
 
 pub struct AppState {

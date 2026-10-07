@@ -21,6 +21,7 @@ use serde_json::json;
 use crate::notify::{self, Event};
 use crate::services::marketdata;
 use crate::state::{AppState, ServerEvent};
+use crate::store::portfolios;
 use crate::store::settings::{self, ExecutionSettings};
 use crate::store::strategy as strategy_store;
 use crate::store::system;
@@ -90,9 +91,12 @@ pub async fn execute_plan(
         tx.commit().await?;
         plan
     };
+    let portfolio = portfolios::for_account(&client, plan.account_id).await?;
+    let (portfolio_id, tag) = (portfolio.id, portfolio.tag());
     state.emit(ServerEvent::Plan {
         plan_id,
         status: "executing".into(),
+        portfolio_id,
     });
 
     let outcome = execute_claimed(state, &mut client, &plan, actor).await;
@@ -114,12 +118,15 @@ pub async fn execute_plan(
             state.emit(ServerEvent::Plan {
                 plan_id,
                 status: report.status.clone(),
+                portfolio_id,
             });
             state.emit(ServerEvent::Account {
                 reason: "execution".into(),
+                portfolio_id,
             });
-            let _ = notify::notify(
+            let _ = notify::notify_in(
                 state,
+                &tag,
                 Event::PlanExecuted {
                     plan_id,
                     trade_date: plan.trade_date,
@@ -152,9 +159,11 @@ pub async fn execute_plan(
             state.emit(ServerEvent::Plan {
                 plan_id,
                 status: "failed".into(),
+                portfolio_id,
             });
-            let _ = notify::notify(
+            let _ = notify::notify_in(
                 state,
+                &tag,
                 Event::PlanFailed {
                     plan_id,
                     slot: plan.slot.clone(),
@@ -427,6 +436,7 @@ pub async fn cancel_plan(
         );
     }
     trading::cancel_plan(&tx, plan_id, actor, reason).await?;
+    let portfolio = portfolios::for_account(&tx, plan.account_id).await?;
     system::audit(
         &tx,
         actor,
@@ -443,9 +453,11 @@ pub async fn cancel_plan(
     state.emit(ServerEvent::Plan {
         plan_id,
         status: "cancelled".into(),
+        portfolio_id: portfolio.id,
     });
-    let _ = notify::notify(
+    let _ = notify::notify_in(
         state,
+        &portfolio.tag(),
         Event::PlanCancelled {
             plan_id,
             slot: plan.slot,
@@ -510,6 +522,7 @@ pub async fn skip_order(
         } else {
             "pending".into()
         },
+        portfolio_id: portfolios::for_account(&client, plan.account_id).await?.id,
     });
     Ok(())
 }
@@ -521,7 +534,7 @@ pub async fn expire_overdue(state: &Arc<AppState>) -> Result<usize> {
     let now = state.now();
     let rows = client
         .query(
-            "UPDATE plans SET status = 'expired' WHERE status = 'pending' AND deadline <= $1 RETURNING id, slot",
+            "UPDATE plans SET status = 'expired' WHERE status = 'pending' AND deadline <= $1 RETURNING id, slot, account_id",
             &[&now],
         )
         .await?;
@@ -534,16 +547,22 @@ pub async fn expire_overdue(state: &Arc<AppState>) -> Result<usize> {
             )
             .await?;
     }
-    drop(client);
+    let mut expired = Vec::with_capacity(rows.len());
     for row in &rows {
+        expired.push((row, portfolios::for_account(&client, row.get(2)).await?));
+    }
+    drop(client);
+    for (row, portfolio) in expired {
         let plan_id: i64 = row.get(0);
         tracing::warn!(plan = plan_id, "plan expired before execution");
         state.emit(ServerEvent::Plan {
             plan_id,
             status: "expired".into(),
+            portfolio_id: portfolio.id,
         });
-        let _ = notify::notify(
+        let _ = notify::notify_in(
             state,
+            &portfolio.tag(),
             Event::PlanExpired {
                 plan_id,
                 slot: row.get(1),

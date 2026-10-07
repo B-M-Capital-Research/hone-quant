@@ -77,6 +77,16 @@
   max-width: 980px;
 }
 
+/* "Applies to the current portfolio" note on per-portfolio sections */
+.settings-scope {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.settings-scope > span {
+  flex: 1 1 240px;
+}
+
 .settings-head {
   margin-bottom: 2px;
 }
@@ -393,20 +403,6 @@
 
 .danger-ghost:hover:not(:disabled) {
   background: var(--hone-signal-red-soft);
-}
-
-.btn.danger.solid {
-  border-color: var(--hone-signal-red);
-  background: var(--hone-signal-red);
-  color: var(--hone-action-fg);
-}
-
-.btn.danger.solid:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--hone-signal-red) 88%, var(--hone-ink-950));
-}
-
-:root[data-theme="dark"] .btn.danger.solid {
-  color: var(--hone-paper-50);
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1555,10 +1551,11 @@
   min-width: 60px;
 }
 
+/* One role per row: each carries a one-line description. */
 .role-cards {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
 }
 
 .role-card {
@@ -1704,8 +1701,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .dialog-grid,
-  .role-cards {
+  .dialog-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -8,7 +8,8 @@ import { plansText } from "@/i18n/plans";
 import { ApiError, api } from "@/lib/api";
 import { onServerEvent } from "@/lib/events";
 import { fmtDual, fmtMoney, fmtNum, fmtPct, fmtPrice, fmtQty, moneyPolarity, toNumber } from "@/lib/format";
-import { isAdmin, serverNow } from "@/lib/session";
+import { portfolios, selectPortfolio, selectedId } from "@/lib/portfolio";
+import { serverNow } from "@/lib/session";
 import type { Order, Plan, PlanDetail as Detail } from "@/lib/types";
 import "@/styles/plans.css";
 import { actorName, strategyName } from "@/lib/names";
@@ -128,6 +129,10 @@ export default function PlanDetail() {
       {(d) => {
         const plan = () => d().plan;
         const pending = () => plan().status === "pending";
+        /** Authorised by the plan's own portfolio, whichever one is selected. */
+        const canAct = () => pending() && d().can_trade === true;
+        /** Opened from a link about another portfolio than the one being worked in. */
+        const elsewhere = () => (d().portfolio && d().portfolio.id !== selectedId() ? d().portfolio : null);
         const rebalance = () => d().diagnostics.rebalance;
         const flags = () => [...(d().diagnostics.frozen ?? []), ...(d().diagnostics.excluded ?? [])];
         return (
@@ -143,6 +148,12 @@ export default function PlanDetail() {
                   <span class="chip outline">#{plan().id}</span>
                 </div>
                 <p class="lead">
+                  <Show when={d().portfolio}>
+                    <span class="nowrap">
+                      <Icon name="briefcase" size={13} style={{ "vertical-align": "-2px" }} /> {tpl(t().detail.portfolio, { name: d().portfolio.name })}
+                    </span>
+                    {" · "}
+                  </Show>
                   {tpl(t().detail.generated, { time: fmtDual(plan().generated_at, "auto") })} · {tpl(t().detail.by, { who: actorName(plan().created_by) })}
                   <Show when={d().strategy}>
                     {" · "}
@@ -155,7 +166,7 @@ export default function PlanDetail() {
                   {tpl(t().detail.mode, { mode: c().mode[plan().automation_mode] })}
                 </p>
               </div>
-              <Show when={pending() && isAdmin()}>
+              <Show when={canAct()}>
                 <div class="row">
                   <button class="btn danger" onClick={() => cancel(plan())}>
                     <Icon name="ban" size={15} /> {t().detail.cancel}
@@ -166,6 +177,20 @@ export default function PlanDetail() {
                 </div>
               </Show>
             </div>
+
+            <Show when={elsewhere()}>
+              {(other) => (
+                <div class="callout info plan-portfolio-banner">
+                  <Icon name="briefcase" size={16} />
+                  <span class="text">{tpl(t().detail.other_portfolio, { name: other().name })}</span>
+                  <Show when={portfolios().some((p) => p.id === other().id)}>
+                    <button class="btn sm" onClick={() => selectPortfolio(other().id)} title={tpl(t().detail.switch_to, { name: other().name })}>
+                      <span class="truncate">{tpl(t().detail.switch_to, { name: other().name })}</span>
+                    </button>
+                  </Show>
+                </div>
+              )}
+            </Show>
 
             <Show when={plan().error}>
               <div class="callout critical">
@@ -275,7 +300,7 @@ export default function PlanDetail() {
                   </For>
                 </div>
                 <Show when={tab() === "orders"}>
-                  <OrdersTable detail={d()} name={name} pending={pending()} onRemove={removeOrder} />
+                  <OrdersTable detail={d()} name={name} editable={canAct()} onRemove={removeOrder} />
                 </Show>
                 <Show when={tab() === "fills"}>
                   <FillsTable detail={d()} name={name} />
@@ -421,7 +446,7 @@ function SymbolCell(props: { symbol: string; name: string }) {
   );
 }
 
-function OrdersTable(props: { detail: Detail; name: (s: string) => string; pending: boolean; onRemove: (o: Order) => void }) {
+function OrdersTable(props: { detail: Detail; name: (s: string) => string; editable: boolean; onRemove: (o: Order) => void }) {
   const t = plansText;
   const c = common;
   const totals = createMemo(() => {
@@ -450,7 +475,7 @@ function OrdersTable(props: { detail: Detail; name: (s: string) => string; pendi
               <th class="r">{t().detail.col_notional}</th>
               <th class="r">{t().detail.col_weights}</th>
               <th>{t().detail.col_status}</th>
-              <Show when={props.pending && isAdmin()}>
+              <Show when={props.editable}>
                 <th />
               </Show>
             </tr>
@@ -483,7 +508,7 @@ function OrdersTable(props: { detail: Detail; name: (s: string) => string; pendi
                   <td>
                     <OrderStatusChip status={o.status} reason={o.status_reason} />
                   </td>
-                  <Show when={props.pending && isAdmin()}>
+                  <Show when={props.editable}>
                     <td class="r">
                       <Show when={o.status === "planned"}>
                         <button class="btn sm ghost" onClick={() => props.onRemove(o)} title={t().detail.remove_order}>
@@ -503,7 +528,7 @@ function OrdersTable(props: { detail: Detail; name: (s: string) => string; pendi
               <td class="r num nowrap" colSpan={2}>
                 {tpl(t().detail.buys, { value: fmtMoney(totals().buys, { dp: 0 }) })} · {tpl(t().detail.sells, { value: fmtMoney(totals().sells, { dp: 0 }) })}
               </td>
-              <td colSpan={props.pending && isAdmin() ? 2 : 1} />
+              <td colSpan={props.editable ? 2 : 1} />
             </tr>
           </tfoot>
         </table>

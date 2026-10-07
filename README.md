@@ -109,6 +109,11 @@ was decided is exactly what gets traded.
   chosen period (1 day to 1 year) as one candle, grouped by sector, with current and target
   weights underneath. One click opens a company's own candles with moving averages, volume and
   this account's fills.
+- **Separate portfolios.** Run several paper portfolios side by side, for different starting
+  capital or for different people managing their own holdings. Each has its own holdings, cash,
+  plans, fills, performance, automation mode and active strategy version, chosen from the shared
+  strategy library; the universe and ontology are shared. Members create and run only their own
+  portfolios, administrators see every one, viewers read.
 - **Two plans a day, automatically.** An opening plan (30 minutes after the open) and a
   pre-close plan (three hours before the close), each with a review window. Run fully
   automatically, require approval, or pause. You can cancel a plan, remove single orders, or skip
@@ -232,17 +237,20 @@ plan is generated at 10:00 and executes after its ten-minute review window. Demo
 
 ### Your first ten minutes
 
-1. **Overview**: the candle board shows every company's move for the chosen period, grouped by
+1. **Portfolios**: the switcher at the top of every page selects the portfolio you are working
+   in; *Portfolios → New portfolio* opens another with its own starting capital, strategy
+   version and automation mode.
+2. **Overview**: the candle board shows every company's move for the chosen period, grouped by
    sector, with current (grey) and target (red tick) weights. Click a candle for that company's
    chart; *Single asset* steps through the universe.
-2. **Strategy**: *How it works* explains the active version with its own numbers. *Tune & preview*
+3. **Strategy**: *How it works* explains the active version with its own numbers. *Tune & preview*
    shows what a parameter change would do to today's targets before you save it as a new version.
-3. **Backtests → New backtest**: run the active strategy or a preset over one to ten years against
+4. **Backtests → New backtest**: run the active strategy or a preset over one to ten years against
    SPY, QQQ, SMH and the equal-weight universe.
-4. **Settings**: plan times, automatic or approval mode, execution costs, risk alerts, and
+5. **Settings**: plan times, automatic or approval mode, execution costs, risk alerts, and
    *Notifications*, where you can add a Telegram, Feishu, WeCom, Slack, Discord, webhook or e-mail
    channel and send a test message.
-5. **Trading plans**: you are notified when a plan is generated. Open it to see every order and
+6. **Trading plans**: you are notified when a plan is generated. Open it to see every order and
    the reasoning behind every target. During the review window you can cancel the plan or remove
    single orders.
 
@@ -323,7 +331,7 @@ Every variable is documented in [`deploy/runtime.env.example`](deploy/runtime.en
 ```text
 hone-quant serve                        web UI, API, scheduler and paper broker (the default)
 hone-quant migrate                      apply database migrations and exit
-hone-quant user add <name> [--role admin|viewer]
+hone-quant user add <name> [--role admin|member|viewer]
 hone-quant user passwd <name>           set a new password and sign out that user's sessions
 hone-quant user list
 hone-quant fmp-check [--symbol NVDA]    probe every FMP endpoint hone-quant uses

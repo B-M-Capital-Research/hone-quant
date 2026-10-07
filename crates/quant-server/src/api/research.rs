@@ -11,6 +11,7 @@ use quant_core::strategy::{StrategyParams, preset};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::context::PortfolioCtx;
 use super::error::{ApiError, ApiResult};
 use crate::auth::{AdminUser, CurrentUser};
 use crate::services::{backtests, portfolio};
@@ -147,7 +148,7 @@ pub struct PerformanceQuery {
 
 pub async fn performance(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    ctx: PortfolioCtx,
     Query(q): Query<PerformanceQuery>,
 ) -> ApiResult<Json<Value>> {
     let today = MarketCalendar::local_date(state.now());
@@ -160,7 +161,7 @@ pub async fn performance(
         "ALL" => None,
         _ => return Err(ApiError::bad("range must be 1M, 3M, 6M, YTD, 1Y or ALL")),
     };
-    let perf = portfolio::performance(&state, from).await?;
+    let perf = portfolio::performance(&state, ctx.account(), from).await?;
     Ok(Json(
         serde_json::to_value(perf).map_err(anyhow::Error::from)?,
     ))

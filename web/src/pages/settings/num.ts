@@ -8,6 +8,9 @@
  */
 import { tpl } from "@/i18n";
 import { settingsText } from "@/i18n/settings";
+import { normalizeNumText } from "@/lib/format";
+
+export { normalizeNumText };
 
 export interface NumSpec {
   min: number;
@@ -19,15 +22,6 @@ export interface NumSpec {
   unit?: () => string;
   /** Currency prefix shown before both bounds, e.g. "$". */
   prefix?: string;
-}
-
-/** Accepts full-width digits and separators typed through a Chinese IME, and thousands separators. */
-export function normalizeNumText(text: string): string {
-  return text
-    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
-    .replace(/[．。]/g, ".")
-    .replace(/[－—–]/g, "-")
-    .replace(/[,\s_，]/g, "");
 }
 
 /** Rounds away binary noise (0.07 * 100 = 7.000000000000001). */

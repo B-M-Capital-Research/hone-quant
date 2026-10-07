@@ -7,15 +7,16 @@ use quant_core::schedule::ScheduleSettings;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::context;
 use super::error::{ApiError, ApiResult};
-use crate::auth::{AdminUser, CurrentUser};
+use crate::auth::{AdminUser, CurrentUser, Role};
 use crate::notify::{self, channels};
 use crate::services::marketdata;
 use crate::services::reminders::{self, Schedule};
 use crate::state::{ServerEvent, SharedState};
 use crate::store::settings::{
-    self, AutomationSettings, BenchmarkSettings, ChannelMap, DisplaySettings, ExecutionSettings,
-    NotificationSettings, RiskSettings, StoredChannel,
+    self, BenchmarkSettings, ChannelMap, DisplaySettings, ExecutionSettings, NotificationSettings,
+    RiskSettings, StoredChannel,
 };
 use crate::store::{market, system};
 
@@ -27,14 +28,17 @@ pub struct NotificationQuery {
     limit: Option<i64>,
 }
 
+/// The inbox: notifications about the whole system and about the portfolios the user can see.
 pub async fn notifications(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    user: CurrentUser,
     Query(q): Query<NotificationQuery>,
 ) -> ApiResult<Json<Value>> {
+    let scope = context::visible_ids(&state, &user).await?;
     let client = state.pool.get().await?;
     let items = system::notifications(
         &client,
+        scope.as_deref(),
         &system::NotificationFilter {
             unread_only: q.unread.unwrap_or(false),
             category: q.category.filter(|c| !c.is_empty()),
@@ -44,28 +48,30 @@ pub async fn notifications(
     )
     .await?;
     Ok(Json(
-        json!({"notifications": items, "unread": system::unread_count(&client).await?}),
+        json!({"notifications": items, "unread": system::unread_count(&client, scope.as_deref()).await?}),
     ))
 }
 
 pub async fn read_one(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    user: CurrentUser,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
+    let scope = context::visible_ids(&state, &user).await?;
     let client = state.pool.get().await?;
-    system::mark_read(&client, Some(id)).await?;
+    system::mark_read(&client, scope.as_deref(), Some(id)).await?;
     Ok(Json(
-        json!({"unread": system::unread_count(&client).await?}),
+        json!({"unread": system::unread_count(&client, scope.as_deref()).await?}),
     ))
 }
 
 pub async fn read_all(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    user: CurrentUser,
 ) -> ApiResult<Json<Value>> {
+    let scope = context::visible_ids(&state, &user).await?;
     let client = state.pool.get().await?;
-    system::mark_read(&client, None).await?;
+    system::mark_read(&client, scope.as_deref(), None).await?;
     Ok(Json(json!({"unread": 0})))
 }
 
@@ -236,7 +242,6 @@ pub async fn settings(
 ) -> ApiResult<Json<Value>> {
     let client = state.pool.get().await?;
     let schedule: ScheduleSettings = settings::schedule(&client).await?;
-    let automation: AutomationSettings = settings::get(&client, settings::AUTOMATION).await?;
     let execution: ExecutionSettings = settings::get(&client, settings::EXECUTION).await?;
     let risk: RiskSettings = settings::get(&client, settings::RISK).await?;
     let notifications: NotificationSettings =
@@ -245,7 +250,6 @@ pub async fn settings(
     let benchmarks: BenchmarkSettings = settings::get(&client, settings::BENCHMARKS).await?;
     Ok(Json(json!({
         "schedule": schedule,
-        "automation": automation,
         "execution": execution,
         "risk": risk,
         "notifications": notifications,
@@ -283,6 +287,7 @@ async fn store_section<T: serde::Serialize + serde::de::DeserializeOwned + Defau
     .await?;
     state.emit(ServerEvent::Settings {
         key: key.to_string(),
+        portfolio_id: None,
     });
     Ok(())
 }
@@ -513,16 +518,23 @@ pub struct AuditQuery {
     limit: Option<i64>,
 }
 
+/// The audit trail. Members see their own entries only (it records every user's actions and
+/// addresses).
 pub async fn audit(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    user: CurrentUser,
     Query(q): Query<AuditQuery>,
 ) -> ApiResult<Json<Value>> {
+    let actor = if user.role == Role::Member {
+        Some(user.username.clone())
+    } else {
+        q.actor.filter(|s| !s.is_empty())
+    };
     let client = state.pool.get().await?;
     let entries = system::audit_entries(
         &client,
         &system::AuditFilter {
-            actor: q.actor.filter(|s| !s.is_empty()),
+            actor,
             action: q.action.filter(|s| !s.is_empty()),
             entity_type: q.entity_type.filter(|s| !s.is_empty()),
             entity_id: q.entity_id.filter(|s| !s.is_empty()),

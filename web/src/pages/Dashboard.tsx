@@ -5,6 +5,7 @@ import { overviewText } from "@/i18n/overview";
 import { api } from "@/lib/api";
 import { onServerEvent } from "@/lib/events";
 import { fmtTime } from "@/lib/format";
+import { onPortfolioEvent } from "@/lib/portfolio";
 import "@/styles/overview.css";
 import { ASSET_RANGES, AssetChart, type AssetRange } from "./overview/AssetChart";
 import { Holdings } from "./overview/Holdings";
@@ -44,7 +45,7 @@ export default function Dashboard() {
       refetchBoard();
     }, 30_000);
     const offs = [
-      onServerEvent(["plan", "account", "strategy", "settings", "universe"], refreshAll),
+      onPortfolioEvent(["plan", "account", "strategy", "settings", "universe"], refreshAll),
       onServerEvent(["quotes"], refreshQuotes),
     ];
     onCleanup(() => offs.forEach((off) => off()));

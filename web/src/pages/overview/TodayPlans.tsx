@@ -7,7 +7,8 @@ import { common } from "@/i18n/common";
 import { overviewText } from "@/i18n/overview";
 import { api } from "@/lib/api";
 import { fmtCountdown, fmtDual, fmtMoney, fmtPct, fmtQty, toNumber } from "@/lib/format";
-import { isAdmin, serverNow } from "@/lib/session";
+import { canTrade } from "@/lib/portfolio";
+import { serverNow } from "@/lib/session";
 import type { MarketView, Plan, PlanWithOrders, SlotView } from "@/lib/types";
 import { weekday } from "./util";
 
@@ -221,7 +222,7 @@ export function TodayPlans(props: { market: MarketView; plans: PlanWithOrders[];
           <A class="btn sm" href={`/plans/${plan().id}`}>
             {t().plans.view}
           </A>
-          <Show when={plan().status === "pending" && isAdmin()}>
+          <Show when={plan().status === "pending" && canTrade()}>
             <button class="btn sm primary" onClick={() => approve(plan())}>
               {plan().automation_mode === "approval" ? t().plans.approve : t().plans.execute_now}
             </button>
@@ -314,7 +315,7 @@ export function TodayPlans(props: { market: MarketView; plans: PlanWithOrders[];
                             ? tpl(t().plans.scheduled, { time: fmtCountdown(new Date(slot.generate_at).getTime() - now()) })
                             : t().plans.generating}
                         </p>
-                        <Show when={isAdmin()}>
+                        <Show when={canTrade()}>
                           <div class="slot-actions">
                             <button class="btn sm" onClick={() => skipSlot(slot)}>
                               <Icon name="ban" size={14} /> {t().plans.skip_slot}
@@ -326,7 +327,7 @@ export function TodayPlans(props: { market: MarketView; plans: PlanWithOrders[];
                     <Show when={state().kind === "cancelled_ahead"}>
                       <div class="slot-body">
                         <p class="muted xs">{tpl(t().plans.cancelled_ahead, { who: (state() as { who: string }).who })}</p>
-                        <Show when={isAdmin() && now() < new Date(slot.window_end).getTime()}>
+                        <Show when={canTrade() && now() < new Date(slot.window_end).getTime()}>
                           <div class="slot-actions">
                             <button class="btn sm" onClick={() => restore(slot)}>
                               <Icon name="refresh" size={14} /> {t().plans.restore}
@@ -378,7 +379,7 @@ export function TodayPlans(props: { market: MarketView; plans: PlanWithOrders[];
           </For>
         </div>
       </div>
-      <Show when={isAdmin()}>
+      <Show when={canTrade()}>
         <div class="card-foot">
           <button class="btn sm danger" disabled={!canCancelDay()} onClick={cancelDay}>
             <Icon name="ban" size={14} /> {t().plans.cancel_day}

@@ -8,8 +8,8 @@ import { overviewText } from "@/i18n/overview";
 import { api } from "@/lib/api";
 import { aggregateBars, candleOption } from "@/lib/charts/builders";
 import { readPalette } from "@/lib/charts/echarts";
-import { onServerEvent } from "@/lib/events";
 import { fmtMoney, fmtPct, fmtPrice, fmtQty, polarity, toNumber } from "@/lib/format";
+import { onPortfolioEvent } from "@/lib/portfolio";
 import type { Board, PositionView } from "@/lib/types";
 import { sectorLabel, throttle } from "./util";
 
@@ -33,7 +33,7 @@ export function AssetChart(props: {
 
   onMount(() => {
     const refresh = throttle(() => refetch(), 20_000);
-    const off = onServerEvent(["quotes", "account"], () => {
+    const off = onPortfolioEvent(["quotes", "account"], () => {
       if (props.range === "1D" || props.range === "5D" || bars.latest?.live) refresh();
     });
     onCleanup(off);

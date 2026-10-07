@@ -8,7 +8,7 @@ import { DASH, fmtDual, fmtMoney, fmtNum, fmtPct, fmtPrice, fmtQty, fmtWeight } 
 import type { Asset, AssetDiagnostics, AssetStatus, Preview, Sector, UniverseView } from "@/lib/types";
 import { compact } from "./params";
 import { pickText } from "./format";
-import type { PreviewRun } from "./workbench";
+import type { PreviewRun } from "./workbench-state";
 
 const STATUS_TONE: Record<AssetStatus, string> = {
   active: "",

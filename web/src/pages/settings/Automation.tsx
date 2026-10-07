@@ -4,8 +4,8 @@ import { tpl } from "@/i18n";
 import { common } from "@/i18n/common";
 import { settingsText } from "@/i18n/settings";
 import { api } from "@/lib/api";
-import { onServerEvent } from "@/lib/events";
 import { fmtDual, zoneLabel } from "@/lib/format";
+import { canTrade, onPortfolioEvent } from "@/lib/portfolio";
 import { displayTz } from "@/lib/prefs";
 import { market, refreshMarket, serverNow } from "@/lib/session";
 import type { AutomationMode, AutomationSettings } from "@/lib/types";
@@ -43,7 +43,7 @@ function activePause(v: AutomationSettings, now: number): number | null {
 export default function AutomationSection() {
   const loader = createLoader(() => api.automation());
   onMount(() => {
-    const off = onServerEvent(["settings"], (event) => {
+    const off = onPortfolioEvent(["settings"], (event) => {
       if (event.type !== "settings" || event.key === "automation") void loader.reload();
     });
     onCleanup(off);
@@ -111,6 +111,7 @@ function AutomationForm(props: { source: () => AutomationSettings; effective: ()
     },
     fieldFor: (m) => (m.includes("paused_until") || m.includes("pause") ? "until" : null),
     savedLabel: () => t().automation.saved_label,
+    editable: canTrade,
   });
 
   const untilMs = createMemo(() => (f.form.pause ? fromLocalInput(f.form.until, zoneTz(f.form.zone)) : null));

@@ -78,6 +78,13 @@
   line-height: 1.25;
 }
 
+.st-active-scope {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: -6px;
+}
+
 .st-active-kv {
   grid-template-columns: minmax(84px, auto) minmax(0, 1fr);
 }

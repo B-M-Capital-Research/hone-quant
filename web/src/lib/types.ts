@@ -25,7 +25,7 @@ export type Side = "buy" | "sell";
 export type OrderReason = "entry" | "exit" | "increase" | "decrease";
 export type AutomationMode = "auto" | "approval" | "paused";
 export type Severity = "info" | "success" | "warning" | "critical";
-export type Role = "admin" | "viewer";
+export type Role = "admin" | "member" | "viewer";
 
 export interface DisplaySettings {
   timezone: string;
@@ -166,6 +166,7 @@ export interface Fill {
 
 export interface Account {
   id: number;
+  portfolio_id: number;
   name: string;
   base_currency: string;
   mode: "paper";
@@ -175,6 +176,54 @@ export interface Account {
   status: "active" | "archived";
   created_at: Iso;
   archived_at: Iso | null;
+}
+
+export interface PortfolioSummary {
+  nav: number;
+  cash: number;
+  invested: number;
+  total_return: number;
+  day_return: number | null;
+  /** Open positions. */
+  positions: number;
+  /** Of the active account. */
+  initial_cash: number;
+  /** Of the active account. */
+  inception_date: DateStr;
+  strategy: { id: number; name: string; preset_id: string } | null;
+}
+
+/** A named, isolated paper book: its own holdings, plans, fills, strategy version and automation. */
+export interface Portfolio {
+  id: number;
+  name: string;
+  description: string;
+  /** Audit identity of the owner (local username or `honeclaw:<id>`); null = shared, managed by administrators. */
+  owner: string | null;
+  /** Display name of the owner; "" when shared. */
+  owner_name: string;
+  automation: AutomationSettings;
+  effective_mode: AutomationMode;
+  status: "active" | "archived";
+  created_by: string;
+  created_at: Iso;
+  archived_at: Iso | null;
+  /** The signed-in user may act on this portfolio (trade, rename, archive, reset). */
+  can_trade: boolean;
+  /** The active paper account; null when archived. */
+  account: Account | null;
+  /** Null for archived portfolios. */
+  summary: PortfolioSummary | null;
+}
+
+export interface NewPortfolio {
+  name: string;
+  description?: string;
+  initial_cash: number;
+  strategy_version_id?: number | null;
+  automation_mode?: AutomationMode;
+  /** Admins only: a local username, or null for a shared portfolio. */
+  owner?: string | null;
 }
 
 export interface PositionView {
@@ -253,6 +302,8 @@ export interface MarketView {
 
 export interface Restriction {
   id: number;
+  /** null = applies to every portfolio. */
+  portfolio_id: number | null;
   symbol: string;
   mode: "exclude" | "lock";
   reason: string;
@@ -581,6 +632,10 @@ export interface PlanDetail {
   audit: AuditEntry[];
   strategy: StrategyVersion | null;
   names: Record<string, { zh: string; en: string; sector: string }>;
+  /** The portfolio the plan belongs to (which may differ from the current one). */
+  portfolio: { id: number; name: string };
+  /** The signed-in user may approve, cancel or edit this plan. */
+  can_trade: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -756,6 +811,9 @@ export interface NotificationRow {
   body_en: string;
   params: Record<string, unknown>;
   link: string | null;
+  /** null = not about a specific portfolio. */
+  portfolio_id: number | null;
+  portfolio_name: string | null;
   read_at: Iso | null;
   deliveries: { channel: string; ok: boolean; error: string | null; at: Iso; digest?: boolean }[];
   deferred: boolean;
@@ -822,7 +880,6 @@ export interface BenchmarkSettings {
 
 export interface SettingsBundle {
   schedule: ScheduleSettings;
-  automation: AutomationSettings;
   execution: ExecutionSettings;
   risk: RiskSettings;
   notifications: NotificationSettings;
@@ -958,12 +1015,15 @@ export interface FieldError {
 
 export type ServerEvent =
   | { type: "quotes"; at: Iso }
-  | { type: "plan"; plan_id: number; status: PlanStatus }
-  | { type: "account"; reason: string }
+  | { type: "plan"; plan_id: number; status: PlanStatus; portfolio_id: number }
+  | { type: "account"; reason: string; portfolio_id: number }
   | { type: "notification"; id: number; severity: Severity; category: string; title_zh: string; title_en: string }
   | { type: "backtest"; id: number; status: string }
-  | { type: "settings"; key: string }
-  | { type: "strategy"; version_id: number }
+  /** automation / restrictions / trading_day carry their portfolio; global settings carry null. */
+  | { type: "settings"; key: string; portfolio_id: number | null }
+  | { type: "strategy"; version_id: number; portfolio_id: number | null }
+  /** A portfolio was created, renamed or archived. */
+  | { type: "portfolios"; portfolio_id: number }
   | { type: "universe" }
   | { type: "resync" }
   | { type: "hello" };

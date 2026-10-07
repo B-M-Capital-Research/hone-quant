@@ -702,6 +702,18 @@
   cursor: default;
 }
 
+.ntf-portfolio {
+  max-width: 200px;
+}
+
+.ntf-portfolio svg {
+  flex: none;
+}
+
+.ntf-portfolio .truncate {
+  min-width: 0;
+}
+
 .ntf-inapp {
   color: var(--hone-ink-500);
 }

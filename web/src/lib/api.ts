@@ -1,6 +1,8 @@
 /**
  * Typed client for the hone-quant API. Every mutating request carries `X-Hone-Quant-Action`
- * (the server's CSRF guard) and errors surface as `ApiError` with the server's machine code.
+ * (the server's CSRF guard), requests carry the selected portfolio as `X-Hone-Quant-Portfolio`
+ * (see `unscoped` for the exceptions), and errors surface as `ApiError` with the server's
+ * machine code.
  */
 import { withBase } from "@/lib/base";
 import type * as T from "@/lib/types";
@@ -22,10 +24,36 @@ export function onUnauthorized(handler: () => void) {
   unauthorizedHandler = handler;
 }
 
+/** The portfolio context, provided by `lib/portfolio` (which itself depends on this client). */
+export interface PortfolioContext {
+  /** The selected portfolio, or null to let the server pick the user's default. */
+  current: () => number | null;
+  /** The server no longer accepts `id` as the context (deleted, archived or not visible). */
+  notFound: (id: number) => void;
+  /** The user cannot see any active portfolio. */
+  none: () => void;
+}
+
+let portfolioContext: PortfolioContext | null = null;
+
+export function setPortfolioContext(context: PortfolioContext) {
+  portfolioContext = context;
+}
+
+/**
+ * Requests that never carry the portfolio header: signing in and loading the list of portfolios
+ * must keep working while a stale selection is being replaced.
+ */
+function unscoped(method: string, path: string): boolean {
+  return path === "/meta" || path.startsWith("/auth/") || (method === "GET" && /^\/portfolios(\?|$)/.test(path));
+}
+
 async function request<R>(method: string, path: string, body?: unknown): Promise<R> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (method !== "GET") headers["X-Hone-Quant-Action"] = "1";
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  const portfolio = unscoped(method, path) ? null : (portfolioContext?.current() ?? null);
+  if (portfolio !== null) headers["X-Hone-Quant-Portfolio"] = String(portfolio);
   let response: Response;
   try {
     response = await fetch(withBase(`/api${path}`), {
@@ -48,6 +76,8 @@ async function request<R>(method: string, path: string, body?: unknown): Promise
   }
   if (!response.ok) {
     if (response.status === 401 && path !== "/auth/login") unauthorizedHandler?.();
+    if (response.status === 404 && data?.error === "portfolio_not_found" && portfolio !== null) portfolioContext?.notFound(portfolio);
+    if (response.status === 404 && data?.error === "no_portfolio") portfolioContext?.none();
     throw new ApiError(response.status, data?.error ?? "http", data?.message ?? response.statusText, data?.fields);
   }
   return data as R;
@@ -75,6 +105,16 @@ export const api = {
   createUser: (username: string, password: string, role: T.Role) => post<{ user: T.User }>("/users", { username, password, role }),
   deleteUser: (id: number) => del<{ ok: boolean }>(`/users/${id}`),
 
+  // Portfolios
+  portfolios: (includeArchived = false) =>
+    get<{ portfolios: T.Portfolio[]; can_create: boolean; default_id: number | null }>(
+      `/portfolios${qs({ include_archived: includeArchived || undefined })}`,
+    ),
+  portfolio: (id: number) => get<{ portfolio: T.Portfolio }>(`/portfolios/${id}`),
+  createPortfolio: (body: T.NewPortfolio) => post<{ portfolio: T.Portfolio }>("/portfolios", body),
+  updatePortfolio: (id: number, body: { name: string; description: string }) => put<{ portfolio: T.Portfolio }>(`/portfolios/${id}`, body),
+  archivePortfolio: (id: number, reason = "") => post<{ portfolio: T.Portfolio }>(`/portfolios/${id}/archive`, { confirm: "ARCHIVE", reason }),
+
   // Overview & market
   dashboard: () => get<T.Dashboard>("/dashboard"),
   market: () => get<T.MarketView>("/market"),
@@ -97,7 +137,7 @@ export const api = {
   automation: () => get<{ automation: T.AutomationSettings; effective_mode: T.AutomationMode }>("/automation"),
   setAutomation: (value: T.AutomationSettings) => put<{ automation: T.AutomationSettings }>("/automation", value),
   restrictions: () => get<{ active: T.Restriction[]; history: T.Restriction[] }>("/restrictions"),
-  addRestriction: (body: { symbol: string; mode: "exclude" | "lock"; reason: string; ends_on?: string | null }) =>
+  addRestriction: (body: { symbol: string; mode: "exclude" | "lock"; reason: string; ends_on?: string | null; scope?: "portfolio" | "all" }) =>
     post<{ restriction: T.Restriction }>("/restrictions", body),
   revokeRestriction: (id: number) => del<{ restriction: T.Restriction }>(`/restrictions/${id}`),
   orders: (q: { symbol?: string; from?: string; to?: string; status?: string; limit?: number; offset?: number }) =>

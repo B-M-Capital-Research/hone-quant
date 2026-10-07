@@ -24,7 +24,7 @@ pub fn history_years() -> i64 {
         .clamp(2, 25)
 }
 
-/// Universe members (active), benchmarks and anything held, deduplicated.
+/// Universe members (active), benchmarks and anything any portfolio holds, deduplicated.
 pub async fn tracked_symbols(state: &AppState) -> Result<Vec<String>> {
     let client = state.pool.get().await?;
     let mut symbols: BTreeSet<String> = market::assets(&client, false)
@@ -36,14 +36,7 @@ pub async fn tracked_symbols(state: &AppState) -> Result<Vec<String>> {
         crate::store::settings::get(&client, crate::store::settings::BENCHMARKS).await?;
     symbols.extend(bench.symbols);
     symbols.extend(universe::bundled().benchmarks.into_iter().map(|b| b.symbol));
-    if let Some(account) = trading::active_account(&client).await? {
-        symbols.extend(
-            trading::positions(&client, account.id, false)
-                .await?
-                .into_iter()
-                .map(|p| p.symbol),
-        );
-    }
+    symbols.extend(trading::held_symbols(&client).await?);
     Ok(symbols.into_iter().collect())
 }
 
@@ -148,19 +141,12 @@ pub async fn fresh_quotes(
     Ok(out)
 }
 
-/// Refreshes split and dividend history for held symbols (and the symbols passed in).
+/// Refreshes split and dividend history for symbols any portfolio holds (and those passed in).
 pub async fn sync_corporate_actions(state: &AppState, extra: &[String]) -> Result<usize> {
     let mut symbols: BTreeSet<String> = extra.iter().cloned().collect();
     {
         let client = state.pool.get().await?;
-        if let Some(account) = trading::active_account(&client).await? {
-            symbols.extend(
-                trading::positions(&client, account.id, false)
-                    .await?
-                    .into_iter()
-                    .map(|p| p.symbol),
-            );
-        }
+        symbols.extend(trading::held_symbols(&client).await?);
     }
     let mut count = 0;
     for symbol in symbols {

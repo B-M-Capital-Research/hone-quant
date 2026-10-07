@@ -155,6 +155,8 @@ pub async fn activations(client: &impl GenericClient, account_id: i64) -> Result
 #[derive(Debug, Clone, Serialize)]
 pub struct Restriction {
     pub id: i64,
+    /// `None`: applies to every portfolio.
+    pub portfolio_id: Option<i64>,
     pub symbol: String,
     pub mode: String,
     pub reason: String,
@@ -178,42 +180,65 @@ fn restriction_from_row(r: &Row) -> Restriction {
         created_at: r.get(7),
         revoked_at: r.get(8),
         revoked_by: r.get(9),
+        portfolio_id: r.get(10),
     }
 }
 
-const RESTRICTION_COLUMNS: &str =
-    "id, symbol, mode, reason, starts_on, ends_on, created_by, created_at, revoked_at, revoked_by";
+const RESTRICTION_COLUMNS: &str = "id, symbol, mode, reason, starts_on, ends_on, created_by, created_at, revoked_at, revoked_by, portfolio_id";
 
-/// Restrictions in force on `date`.
+/// Restrictions in force on `date` for a portfolio: the universe-wide ones and its own. When a
+/// symbol has both, the universe-wide one comes first, so the planner's first match (an
+/// administrator's decision for every portfolio) wins.
 pub async fn active_restrictions(
     client: &impl GenericClient,
     date: NaiveDate,
+    portfolio_id: i64,
 ) -> Result<Vec<Restriction>> {
     let rows = client
         .query(
             &format!(
                 "SELECT {RESTRICTION_COLUMNS} FROM trading_restrictions
                  WHERE revoked_at IS NULL AND starts_on <= $1 AND (ends_on IS NULL OR ends_on >= $1)
-                 ORDER BY symbol"
+                   AND (portfolio_id IS NULL OR portfolio_id = $2)
+                 ORDER BY symbol, portfolio_id NULLS FIRST, id"
             ),
-            &[&date],
+            &[&date, &portfolio_id],
         )
         .await?;
     Ok(rows.iter().map(restriction_from_row).collect())
 }
 
-pub async fn all_restrictions(client: &impl GenericClient) -> Result<Vec<Restriction>> {
+/// The latest restrictions (any state) that concern a portfolio.
+pub async fn all_restrictions(
+    client: &impl GenericClient,
+    portfolio_id: i64,
+) -> Result<Vec<Restriction>> {
     let rows = client
         .query(
-            &format!("SELECT {RESTRICTION_COLUMNS} FROM trading_restrictions ORDER BY created_at DESC LIMIT 500"),
-            &[],
+            &format!(
+                "SELECT {RESTRICTION_COLUMNS} FROM trading_restrictions
+                 WHERE portfolio_id IS NULL OR portfolio_id = $1 ORDER BY created_at DESC LIMIT 500"
+            ),
+            &[&portfolio_id],
         )
         .await?;
     Ok(rows.iter().map(restriction_from_row).collect())
 }
 
+pub async fn restriction(client: &impl GenericClient, id: i64) -> Result<Option<Restriction>> {
+    let row = client
+        .query_opt(
+            &format!("SELECT {RESTRICTION_COLUMNS} FROM trading_restrictions WHERE id = $1"),
+            &[&id],
+        )
+        .await?;
+    Ok(row.as_ref().map(restriction_from_row))
+}
+
+#[allow(clippy::too_many_arguments)]
 pub async fn add_restriction(
     client: &impl GenericClient,
+    portfolio_id: Option<i64>,
     symbol: &str,
     mode: &str,
     reason: &str,
@@ -224,10 +249,10 @@ pub async fn add_restriction(
     let row = client
         .query_one(
             &format!(
-                "INSERT INTO trading_restrictions (symbol, mode, reason, starts_on, ends_on, created_by)
-                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING {RESTRICTION_COLUMNS}"
+                "INSERT INTO trading_restrictions (portfolio_id, symbol, mode, reason, starts_on, ends_on, created_by)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {RESTRICTION_COLUMNS}"
             ),
-            &[&symbol, &mode, &reason, &starts_on, &ends_on, &actor],
+            &[&portfolio_id, &symbol, &mode, &reason, &starts_on, &ends_on, &actor],
         )
         .await?;
     Ok(restriction_from_row(&row))
@@ -265,14 +290,15 @@ pub struct SkippedSlot {
 
 pub async fn skipped_slots(
     client: &impl GenericClient,
+    portfolio_id: i64,
     from: NaiveDate,
     to: NaiveDate,
 ) -> Result<Vec<SkippedSlot>> {
     let rows = client
         .query(
             "SELECT trade_date, slot, reason, created_by, created_at FROM skipped_slots
-             WHERE trade_date BETWEEN $1 AND $2 ORDER BY trade_date, slot",
-            &[&from, &to],
+             WHERE portfolio_id = $1 AND trade_date BETWEEN $2 AND $3 ORDER BY trade_date, slot",
+            &[&portfolio_id, &from, &to],
         )
         .await?;
     Ok(rows
@@ -289,10 +315,11 @@ pub async fn skipped_slots(
 
 pub async fn is_slot_skipped(
     client: &impl GenericClient,
+    portfolio_id: i64,
     date: NaiveDate,
     slot: &str,
 ) -> Result<Option<SkippedSlot>> {
-    Ok(skipped_slots(client, date, date)
+    Ok(skipped_slots(client, portfolio_id, date, date)
         .await?
         .into_iter()
         .find(|s| s.slot == slot))
@@ -300,6 +327,7 @@ pub async fn is_slot_skipped(
 
 pub async fn skip_slot(
     client: &impl GenericClient,
+    portfolio_id: i64,
     date: NaiveDate,
     slot: &str,
     reason: &str,
@@ -307,18 +335,24 @@ pub async fn skip_slot(
 ) -> Result<bool> {
     let n = client
         .execute(
-            "INSERT INTO skipped_slots (trade_date, slot, reason, created_by) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
-            &[&date, &slot, &reason, &actor],
+            "INSERT INTO skipped_slots (portfolio_id, trade_date, slot, reason, created_by) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT DO NOTHING",
+            &[&portfolio_id, &date, &slot, &reason, &actor],
         )
         .await?;
     Ok(n > 0)
 }
 
-pub async fn unskip_slot(client: &impl GenericClient, date: NaiveDate, slot: &str) -> Result<bool> {
+pub async fn unskip_slot(
+    client: &impl GenericClient,
+    portfolio_id: i64,
+    date: NaiveDate,
+    slot: &str,
+) -> Result<bool> {
     let n = client
         .execute(
-            "DELETE FROM skipped_slots WHERE trade_date = $1 AND slot = $2",
-            &[&date, &slot],
+            "DELETE FROM skipped_slots WHERE portfolio_id = $1 AND trade_date = $2 AND slot = $3",
+            &[&portfolio_id, &date, &slot],
         )
         .await?;
     Ok(n > 0)

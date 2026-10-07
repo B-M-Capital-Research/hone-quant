@@ -1,5 +1,5 @@
-//! First-run and every-start initialisation: universe sync, operator account, paper account,
-//! default strategy and built-in reminders. Everything here is idempotent.
+//! First-run and every-start initialisation: universe sync, operator account, the first
+//! portfolio, default strategy and built-in reminders. Everything here is idempotent.
 
 use std::sync::Arc;
 
@@ -13,7 +13,9 @@ use crate::notify::{self, Event};
 use crate::services::portfolio;
 use crate::services::reminders;
 use crate::state::AppState;
-use crate::store::{strategy as strategy_store, system, trading};
+use crate::store::portfolios::{self, NewPortfolio};
+use crate::store::settings::AutomationSettings;
+use crate::store::{strategy as strategy_store, system};
 use crate::universe;
 
 pub async fn run(state: &Arc<AppState>) -> Result<()> {
@@ -74,66 +76,79 @@ pub async fn run(state: &Arc<AppState>) -> Result<()> {
         }
     }
 
-    // Paper account.
-    let account = match trading::active_account(&client).await? {
-        Some(account) => account,
+    // Default strategy version: the default preset, created once.
+    let default_version = match strategy_store::versions(&client)
+        .await?
+        .into_iter()
+        .find(|v| v.preset_id == DEFAULT_PRESET)
+    {
+        Some(version) => version,
         None => {
-            let (first_session, base_date) = portfolio::inception_dates(state, state.now());
-            let cash = Decimal::from_f64_retain(state.config.initial_cash)
-                .unwrap_or(Decimal::ONE_THOUSAND)
-                .round_dp(2);
-            let tx = client.transaction().await?;
-            let account = trading::create_account(&tx, "Paper", cash, first_session).await?;
-            trading::upsert_nav(&tx, account.id, base_date, cash, cash, Decimal::ZERO).await?;
-            system::audit(
-                &tx,
+            let p = preset(DEFAULT_PRESET).expect("default preset exists");
+            strategy_store::insert_version(
+                &client,
+                p.name_en,
+                p.id,
+                &p.params,
+                "default strategy",
                 "system",
-                "account.created",
-                "account",
-                &account.id.to_string(),
-                json!({"initial_cash": cash}),
-                "",
             )
-            .await?;
-            tx.commit().await?;
-            tracing::info!(initial_cash = %cash, "created the paper account");
-            account
+            .await?
         }
     };
 
-    // Strategy.
-    if strategy_store::active_version(&client, account.id)
-        .await?
-        .is_none()
-    {
-        let p = preset(DEFAULT_PRESET).expect("default preset exists");
-        let version = strategy_store::insert_version(
-            &client,
-            p.name_en,
-            p.id,
-            &p.params,
-            "default strategy",
-            "system",
+    // First start: one shared portfolio.
+    if portfolios::list(&client, true).await?.is_empty() {
+        let cash = Decimal::from_f64_retain(state.config.initial_cash)
+            .unwrap_or(Decimal::ONE_THOUSAND)
+            .round_dp(2);
+        let tx = client.transaction().await?;
+        portfolio::open(
+            state,
+            &tx,
+            &portfolio::OpenPortfolio {
+                portfolio: NewPortfolio {
+                    name: "Main",
+                    description: "",
+                    owner: None,
+                    owner_name: "",
+                    automation: &AutomationSettings::default(),
+                    created_by: "system",
+                },
+                initial_cash: cash,
+                strategy_version_id: default_version.id,
+            },
         )
         .await?;
-        strategy_store::activate(
-            &client,
-            account.id,
-            version.id,
-            "system",
-            "initial activation",
-        )
-        .await?;
-        system::audit(
-            &client,
-            "system",
-            "strategy.activated",
-            "strategy_version",
-            &version.id.to_string(),
-            json!({"preset": p.id}),
-            "",
-        )
-        .await?;
+        tx.commit().await?;
+        tracing::info!(initial_cash = %cash, "created the Main portfolio");
+    }
+
+    // Every active portfolio trades some strategy.
+    for book in portfolios::active_books(&client).await? {
+        if strategy_store::active_version(&client, book.account.id)
+            .await?
+            .is_none()
+        {
+            strategy_store::activate(
+                &client,
+                book.account.id,
+                default_version.id,
+                "system",
+                "initial activation",
+            )
+            .await?;
+            system::audit(
+                &client,
+                "system",
+                "strategy.activated",
+                "strategy_version",
+                &default_version.id.to_string(),
+                json!({"preset": DEFAULT_PRESET, "portfolio_id": book.portfolio.id}),
+                "",
+            )
+            .await?;
+        }
     }
 
     reminders::seed_builtins(&client).await?;

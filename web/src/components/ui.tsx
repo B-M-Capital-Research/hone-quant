@@ -32,6 +32,7 @@ export function toastError(error: unknown, fallback?: string) {
   if (error instanceof ApiError) {
     if (error.code === "network") return toast(c.states.error, c.states.network, "critical");
     if (error.status === 403 && error.message.includes("admin")) return toast(c.states.no_permission, undefined, "warning");
+    if (error.status === 403) return toast(c.states.forbidden, error.message && error.message !== error.code ? error.message : undefined, "warning");
     const detail = error.fields?.length ? error.fields.map((f) => `${f.path}: ${f.message}`).join("\n") : error.message;
     return toast(fallback ?? c.states.error, detail, "critical", 7000);
   }

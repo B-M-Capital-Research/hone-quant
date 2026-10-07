@@ -6,9 +6,9 @@ import { tpl } from "@/i18n";
 import { common } from "@/i18n/common";
 import { plansText } from "@/i18n/plans";
 import { api } from "@/lib/api";
-import { onServerEvent } from "@/lib/events";
 import { MARKET_TZ, fmtDate, fmtDual, fmtMoney, fmtPct } from "@/lib/format";
-import { isAdmin, market, serverNow } from "@/lib/session";
+import { canTrade, onPortfolioEvent } from "@/lib/portfolio";
+import { market, serverNow } from "@/lib/session";
 import { actorName } from "@/lib/names";
 import type { Plan, PlanStatus } from "@/lib/types";
 import "@/styles/plans.css";
@@ -48,7 +48,7 @@ export default function Plans() {
   const [plans, { refetch }] = createResource(query, (q) => api.plans(q));
 
   onMount(() => {
-    const off = onServerEvent(["plan", "account"], throttle(() => refetch(), 3000));
+    const off = onPortfolioEvent(["plan", "account"], throttle(() => refetch(), 3000));
     onCleanup(off);
   });
 
@@ -89,7 +89,7 @@ export default function Plans() {
           <h1>{t().list.title}</h1>
           <p class="lead">{t().list.lead}</p>
         </div>
-        <Show when={isAdmin()}>
+        <Show when={canTrade()}>
           <button class="btn primary" onClick={generate} disabled={!inSession() || mode() === "paused"} title={inSession() ? t().list.generate_hint : t().list.generate_closed}>
             <Icon name="plus" size={16} /> {t().list.generate}
           </button>

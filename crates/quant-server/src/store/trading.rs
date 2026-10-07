@@ -3,7 +3,7 @@
 //! Money and quantities are `rust_decimal::Decimal` (PostgreSQL NUMERIC) so the ledger is exact;
 //! the analytics layer converts to `f64` at its boundary.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use std::collections::HashMap;
 
 use chrono::{DateTime, NaiveDate, Utc};
@@ -29,6 +29,7 @@ pub fn f(value: Decimal) -> f64 {
 #[derive(Debug, Clone, Serialize)]
 pub struct Account {
     pub id: i64,
+    pub portfolio_id: i64,
     pub name: String,
     pub base_currency: String,
     pub mode: String,
@@ -44,6 +45,7 @@ impl Account {
     fn from_row(row: &Row) -> Self {
         Self {
             id: row.get("id"),
+            portfolio_id: row.get("portfolio_id"),
             name: row.get("name"),
             base_currency: row.get("base_currency"),
             mode: row.get("mode"),
@@ -57,22 +59,32 @@ impl Account {
     }
 }
 
-const ACCOUNT_COLUMNS: &str = "id, name, base_currency, mode, initial_cash, cash, inception_date, status, created_at, archived_at";
+const ACCOUNT_COLUMNS: &str = "id, portfolio_id, name, base_currency, mode, initial_cash, cash, inception_date, status, created_at, archived_at";
 
-pub async fn active_account(client: &impl GenericClient) -> Result<Option<Account>> {
+/// The portfolio's active paper account.
+pub async fn active_account(
+    client: &impl GenericClient,
+    portfolio_id: i64,
+) -> Result<Option<Account>> {
     let row = client
         .query_opt(
-            &format!("SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE status = 'active'"),
-            &[],
+            &format!(
+                "SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE portfolio_id = $1 AND status = 'active'"
+            ),
+            &[&portfolio_id],
         )
         .await?;
     Ok(row.as_ref().map(Account::from_row))
 }
 
-pub async fn require_active_account(client: &impl GenericClient) -> Result<Account> {
-    active_account(client)
-        .await?
-        .ok_or_else(|| anyhow!("no active paper account"))
+pub async fn account(client: &impl GenericClient, id: i64) -> Result<Option<Account>> {
+    let row = client
+        .query_opt(
+            &format!("SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE id = $1"),
+            &[&id],
+        )
+        .await?;
+    Ok(row.as_ref().map(Account::from_row))
 }
 
 /// Locks the account row for the rest of the transaction.
@@ -87,11 +99,14 @@ pub async fn lock_account(client: &impl GenericClient, id: i64) -> Result<Accoun
     Ok(Account::from_row(&row))
 }
 
-pub async fn list_accounts(client: &impl GenericClient) -> Result<Vec<Account>> {
+/// A portfolio's accounts, newest first (the active one and those archived by resets).
+pub async fn list_accounts(client: &impl GenericClient, portfolio_id: i64) -> Result<Vec<Account>> {
     let rows = client
         .query(
-            &format!("SELECT {ACCOUNT_COLUMNS} FROM accounts ORDER BY id DESC"),
-            &[],
+            &format!(
+                "SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE portfolio_id = $1 ORDER BY id DESC"
+            ),
+            &[&portfolio_id],
         )
         .await?;
     Ok(rows.iter().map(Account::from_row).collect())
@@ -99,6 +114,7 @@ pub async fn list_accounts(client: &impl GenericClient) -> Result<Vec<Account>> 
 
 pub async fn create_account(
     client: &impl GenericClient,
+    portfolio_id: i64,
     name: &str,
     initial_cash: Decimal,
     inception: NaiveDate,
@@ -106,10 +122,10 @@ pub async fn create_account(
     let row = client
         .query_one(
             &format!(
-                "INSERT INTO accounts (name, initial_cash, cash, inception_date) VALUES ($1, $2, $2, $3)
+                "INSERT INTO accounts (portfolio_id, name, initial_cash, cash, inception_date) VALUES ($1, $2, $3, $3, $4)
                  RETURNING {ACCOUNT_COLUMNS}"
             ),
-            &[&name, &initial_cash, &inception],
+            &[&portfolio_id, &name, &initial_cash, &inception],
         )
         .await?;
     let account = Account::from_row(&row);
@@ -153,6 +169,18 @@ fn position_from_row(row: &Row) -> Position {
         opened_at: row.get("opened_at"),
         updated_at: row.get("updated_at"),
     }
+}
+
+/// Symbols held by any active account (what market data must keep covering).
+pub async fn held_symbols(client: &impl GenericClient) -> Result<Vec<String>> {
+    let rows = client
+        .query(
+            "SELECT DISTINCT p.symbol FROM positions p JOIN accounts a ON a.id = p.account_id
+             WHERE a.status = 'active' AND p.qty > 0 ORDER BY p.symbol",
+            &[],
+        )
+        .await?;
+    Ok(rows.iter().map(|r| r.get(0)).collect())
 }
 
 /// Positions of an account; closed positions (qty 0) are kept for realized P&L history.
@@ -465,6 +493,25 @@ pub async fn plan_for_slot(
         )
         .await?;
     Ok(row.as_ref().map(plan_from_row))
+}
+
+/// Plans in `pending` or `executing` state of every active account.
+pub async fn open_plans_all(client: &impl GenericClient) -> Result<Vec<Plan>> {
+    let cols = PLAN_COLUMNS
+        .split(',')
+        .map(|c| format!("p.{}", c.trim()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let rows = client
+        .query(
+            &format!(
+                "SELECT {cols} FROM plans p JOIN accounts a ON a.id = p.account_id
+                 WHERE a.status = 'active' AND p.status IN ('pending', 'executing') ORDER BY p.generated_at"
+            ),
+            &[],
+        )
+        .await?;
+    Ok(rows.iter().map(plan_from_row).collect())
 }
 
 /// Plans in `pending` or `executing` state for an account.

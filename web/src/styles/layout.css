@@ -185,6 +185,10 @@
   background: var(--hone-signal-yellow);
 }
 
+.market-pill .phase-short {
+  display: none;
+}
+
 @keyframes hq-pulse {
   50% {
     box-shadow: 0 0 0 6px color-mix(in srgb, var(--hone-signal-green) 0%, transparent);
@@ -200,6 +204,227 @@
   width: 1px;
   height: 16px;
   background: var(--hone-line);
+}
+
+/* Portfolio switcher (top bar, left of the page title) */
+.pf-switch {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.pf-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 300px;
+  height: 36px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--hone-line-strong);
+  border-radius: var(--hone-radius-pill);
+  background: var(--hone-surface-raised);
+  color: var(--hone-ink-950);
+  font-size: var(--hone-text-sm);
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 140ms var(--hone-ease), border-color 140ms var(--hone-ease);
+}
+
+.pf-switch-btn:hover {
+  background: var(--hq-hover);
+}
+
+.pf-switch-btn:focus-visible {
+  outline: 2px solid var(--hone-focus-ring);
+  outline-offset: 2px;
+}
+
+.pf-switch-btn[aria-expanded="true"] {
+  border-color: var(--hone-ink-800);
+}
+
+.pf-switch-btn > svg {
+  flex: none;
+  color: var(--hone-ink-600);
+}
+
+.pf-switch-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-switch-owner {
+  flex: none;
+  max-width: 110px;
+  overflow: hidden;
+  color: var(--hone-ink-500);
+  font-weight: 500;
+  font-size: var(--hone-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-switch-owner::before {
+  content: "· ";
+}
+
+.pf-menu {
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(360px, calc(100vw - 2 * var(--hq-gutter)));
+}
+
+.pf-menu-head {
+  padding: 6px 10px 4px;
+}
+
+.pf-menu-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+}
+
+.pf-menu-list {
+  max-height: min(56vh, 420px);
+  overflow-y: auto;
+}
+
+.pf-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px 8px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--hone-ink-950);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pf-item:hover,
+.pf-item:focus-visible {
+  background: var(--hq-hover);
+  outline: none;
+}
+
+.pf-item.current {
+  background: var(--hq-pressed);
+}
+
+.pf-item-check {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 18px;
+  padding-top: 2px;
+  color: var(--hone-coral-600);
+}
+
+.pf-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pf-item-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pf-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--hone-text-sm);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-item-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--hone-ink-500);
+  font-size: var(--hone-text-xs);
+}
+
+.pf-item-owner {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-item-meta .num {
+  color: var(--hone-ink-800);
+}
+
+.pf-menu a.menu-item {
+  color: var(--hone-ink-950);
+  text-decoration: none;
+}
+
+/* No portfolio yet (shown instead of the page) */
+.pf-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  max-width: 720px;
+  margin: 24px auto;
+  padding: 28px 30px;
+}
+
+.pf-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--hone-signal-orange-soft);
+  color: var(--hone-signal-orange-ink);
+}
+
+.pf-empty-body {
+  color: var(--hone-ink-600);
+  font-size: var(--hone-text-sm);
+  line-height: 1.6;
+}
+
+.pf-empty-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.pf-empty-cols > div {
+  padding: 12px 14px;
+  border: 1px solid var(--hone-line);
+  border-radius: var(--hone-radius-sm);
+  background: var(--hone-paper-50);
+}
+
+.pf-empty-cols ul {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--hone-ink-800);
+  font-size: var(--hone-text-sm);
 }
 
 .content {
@@ -332,6 +557,25 @@
     display: none;
   }
 
+  /* The portfolio name takes what is left and truncates. */
+  .pf-switch-btn {
+    max-width: 100%;
+    padding: 0 8px 0 10px;
+  }
+
+  .pf-switch-owner {
+    display: none;
+  }
+
+  .pf-empty {
+    margin: 8px 0;
+    padding: 22px 18px;
+  }
+
+  .pf-empty-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .market-pill {
     gap: 8px;
     padding: 0 10px;
@@ -376,6 +620,24 @@
 
   .mobile-nav a.active {
     color: var(--hone-coral-600);
+  }
+}
+
+/* Narrow phones: the portfolio name needs the room more than the clock, long labels and icons. */
+@media (max-width: 480px) {
+  .market-pill .clock,
+  .market-pill .phase + .sep,
+  .market-pill .phase-long,
+  .pf-switch-btn > svg:first-child {
+    display: none;
+  }
+
+  .market-pill .phase-short {
+    display: inline;
+  }
+
+  .pf-switch-btn {
+    gap: 4px;
   }
 }
 

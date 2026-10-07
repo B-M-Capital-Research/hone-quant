@@ -21,10 +21,9 @@ const zh = {
     confirm_auto: "切换为自动执行：之后生成的计划会在复核窗口结束后自动成交。",
     confirm_approval: "切换为人工确认：之后的计划需要你手动确认，未确认将在截止时自动过期。",
     confirm_paused: "暂停自动交易：不再生成计划，已生成的待执行计划不受影响（可单独取消）。",
+    scope: "只作用于组合「{name}」，其他组合不受影响。",
   },
   user: {
-    role_admin: "管理员",
-    role_viewer: "只读",
     signed_in_as: "当前登录",
     via_honeclaw: "通过 hone-claw.com 管理员账号登录",
     honeclaw_account: "hone-claw.com 账号",
@@ -56,10 +55,9 @@ const en: typeof zh = {
     confirm_auto: "Switch to automatic: new plans execute on their own after the review window.",
     confirm_approval: "Switch to approval: new plans wait for your approval and expire at their deadline otherwise.",
     confirm_paused: "Pause automation: no new plans are generated. Pending plans are not affected (cancel them separately).",
+    scope: "Applies to “{name}” only; other portfolios are not affected.",
   },
   user: {
-    role_admin: "Admin",
-    role_viewer: "Viewer",
     signed_in_as: "Signed in as",
     via_honeclaw: "Signed in with a hone-claw.com administrator account",
     honeclaw_account: "hone-claw.com account",

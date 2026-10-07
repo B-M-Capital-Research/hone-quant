@@ -5,7 +5,7 @@ import { strategyText } from "@/i18n/strategy";
 import type { Sector, StrategyParams } from "@/lib/types";
 import { type FieldDef, type FieldKind, GROUPS, fieldForIssue, fieldsOf, fromInputText, getPath, toInputText } from "./params";
 import { fieldText, fmtBound, fmtParam, issueText, pickText } from "./format";
-import type { Workbench } from "./workbench";
+import type { Workbench } from "./workbench-state";
 
 export function fieldDomId(path: string): string {
   return `st-f-${path.replace(/\./g, "-")}`;
