@@ -2,11 +2,16 @@ name: Release
 
 # Builds the linux-x86_64 release tarball (web UI embedded) on Ubuntu 22.04, so the binary runs
 # on Debian 12 and Ubuntu 22.04+ hosts. Tags v* publish a GitHub release; manual runs keep the
-# tarball as a workflow artifact.
+# tarball as a workflow artifact and may build for a base path (`/quant` for hone-claw.com).
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      base_path:
+        description: "URL prefix the release is served under, e.g. /quant (empty: the root)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -22,6 +27,8 @@ jobs:
         with:
           bun-version: 1.3.9
       - name: Build release tarball
+        env:
+          HONE_QUANT_BASE_PATH: ${{ inputs.base_path }}
         run: scripts/build-release.sh
       - uses: actions/upload-artifact@v4
         with:
