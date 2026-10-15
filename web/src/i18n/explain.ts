@@ -134,6 +134,10 @@ const zh = {
     model: "模型 {model}",
     drift: "漂移 {drift}",
   },
+  preview: {
+    title: "与最新计划 #{id} 相比",
+    first: "这个组合还没有计划：预览就是首个计划",
+  },
   exposure: {
     title: "市场宽度与仓位",
     sub: "依据计划 #{id}（{date} {slot}）",
@@ -308,6 +312,10 @@ const en: typeof zh = {
     scaled: "Shortened by this plan's cap",
     model: "model {model}",
     drift: "drift {drift}",
+  },
+  preview: {
+    title: "Compared with the latest plan #{id}",
+    first: "This portfolio has no plan yet: the preview is its first plan",
   },
   exposure: {
     title: "Breadth and exposure",

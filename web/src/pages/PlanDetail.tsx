@@ -11,7 +11,7 @@ import { onServerEvent } from "@/lib/events";
 import { fmtDual, fmtMoney, fmtNum, fmtPct, fmtPrice, fmtQty, moneyPolarity, toNumber } from "@/lib/format";
 import { portfolios, selectPortfolio, selectedId } from "@/lib/portfolio";
 import { serverNow } from "@/lib/session";
-import type { Order, Plan, PlanDetail as Detail } from "@/lib/types";
+import type { Order, Plan, PlanDetail as Detail, Rejection } from "@/lib/types";
 import "@/styles/plans.css";
 import { actorName, strategyName } from "@/lib/names";
 import { sectorLabel, throttle } from "./overview/util";
@@ -503,6 +503,27 @@ function OrdersTable(props: { detail: Detail; name: (s: string) => string; edita
     return { buys, sells };
   });
   const why = createMemo(() => new Map((props.detail.explanation?.orders ?? []).map((o) => [o.symbol, o])));
+  const rejection = (symbol: string) => props.detail.plan.summary?.executed?.rejections?.find((r) => r.symbol === symbol);
+  const rejectionText = (r: Rejection): string => {
+    const d = t().detail;
+    switch (r.reason) {
+      case "price_moved":
+        return tpl(d.rejected_moved, {
+          quote: fmtPrice(r.quote),
+          ref: fmtPrice(r.ref_price),
+          dev: r.quote != null && r.ref_price > 0 ? fmtPct(r.quote / r.ref_price - 1, { dp: 2, sign: true }) : "—",
+          limit: fmtPct(r.max_price_deviation, { dp: 1 }),
+        });
+      case "stale_quote":
+        return tpl(d.rejected_stale, { age: r.quote_age_secs ?? "—", limit: r.max_quote_age_secs ?? "—" });
+      case "no_quote":
+        return d.rejected_no_quote;
+      case "insufficient_cash":
+        return tpl(d.rejected_cash, { cash: fmtMoney(r.cash ?? null, { dp: 0 }) });
+      default:
+        return r.reason;
+    }
+  };
   return (
     <Show when={props.detail.orders.length} fallback={<Empty title={t().detail.no_orders} icon="plans" />}>
       <div class="table-wrap">
@@ -554,6 +575,9 @@ function OrdersTable(props: { detail: Detail; name: (s: string) => string; edita
                   </td>
                   <td>
                     <OrderStatusChip status={o.status} reason={o.status_reason} />
+                    <Show when={o.status === "rejected" && rejection(o.symbol)}>
+                      {(r) => <div class="xs muted rejection-detail">{rejectionText(r())}</div>}
+                    </Show>
                   </td>
                   <Show when={props.editable}>
                     <td class="r">

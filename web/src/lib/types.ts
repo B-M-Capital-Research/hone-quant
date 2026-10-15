@@ -119,7 +119,19 @@ export interface PlanSummary {
   strategy_name?: string;
   cash_after?: number;
   skip_reason?: string;
-  executed?: { filled: number; partial: number; rejected: number; bought: number; sold: number; costs: number };
+  executed?: { filled: number; partial: number; rejected: number; bought: number; sold: number; costs: number; rejections?: Rejection[] };
+}
+
+/** What a rejected order saw against its execution limits (recorded from this version on). */
+export interface Rejection {
+  symbol: string;
+  reason: string;
+  ref_price: number;
+  quote: number | null;
+  quote_age_secs?: number | null;
+  max_price_deviation?: number;
+  max_quote_age_secs?: number;
+  cash?: number;
 }
 
 export interface Order {
@@ -617,6 +629,8 @@ export interface ProposedOrder {
 }
 
 export interface Preview {
+  /** Compared with the portfolio's latest plan, as a plan would be. */
+  explanation?: PlanExplanation | null;
   as_of: Iso;
   nav: number;
   cash: number;

@@ -3,7 +3,12 @@ import { Icon } from "@/components/Icon";
 import { Kpi, Pct, SideChip, WeightBar } from "@/components/ui";
 import { tpl } from "@/i18n";
 import { common } from "@/i18n/common";
+import { explainText } from "@/i18n/explain";
+import { plansText } from "@/i18n/plans";
 import { strategyText } from "@/i18n/strategy";
+import { driverChip, driverText, driverTone, oneLine } from "@/lib/explain";
+import { OrderWhyCell } from "../plans/Why";
+import "@/styles/plans.css";
 import { DASH, fmtDual, fmtMoney, fmtNum, fmtPct, fmtPrice, fmtQty, fmtWeight } from "@/lib/format";
 import type { Asset, AssetDiagnostics, AssetStatus, Preview, Sector, UniverseView } from "@/lib/types";
 import { compact } from "./params";
@@ -172,6 +177,27 @@ export function PreviewPanel(props: {
       <p class="xs muted st-method-note">
         {tpl(t().preview.method, { from: r().history.from ?? DASH, to: r().history.to ?? DASH })} {fmtDual(r().as_of, true)}
       </p>
+
+      <Show when={r().explanation}>
+        {(x) => (
+          <div class="callout info st-why">
+            <Icon name="info" size={16} />
+            <div class="stack" style={{ gap: "6px", "min-width": 0 }}>
+              <strong>{x().previous_plan_id ? tpl(explainText().preview.title, { id: x().previous_plan_id! }) : explainText().preview.first}</strong>
+              <span>{oneLine(x().drivers, sectorName)}</span>
+              <div class="pill-list">
+                <For each={x().drivers}>
+                  {(d) => (
+                    <span class={`chip ${driverTone(d)}`} title={driverText(d, sectorName)}>
+                      {driverChip(d, sectorName)}
+                    </span>
+                  )}
+                </For>
+              </div>
+            </div>
+          </div>
+        )}
+      </Show>
 
       <Show when={props.run.sameAsActive}>
         <div class="callout">
@@ -456,6 +482,7 @@ export function PreviewPanel(props: {
                     <th class="r">{t().preview.h_price}</th>
                     <th class="r">{t().preview.h_notional}</th>
                     <th class="r">{t().preview.h_weights}</th>
+                    <th>{plansText().detail.col_why}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -477,6 +504,9 @@ export function PreviewPanel(props: {
                         <td class="r">{fmtMoney(o.notional, { dp: 0 })}</td>
                         <td class="r nowrap">
                           <span class="muted">{fmtWeight(o.weight_before, 2)}</span> → <b>{fmtWeight(o.weight_target, 2)}</b> <span class="muted">→ {fmtWeight(o.weight_after, 2)}</span>
+                        </td>
+                        <td class="why-col">
+                          <OrderWhyCell order={r().explanation?.orders.find((x) => x.symbol === o.symbol)} explanation={r().explanation ?? null} />
                         </td>
                       </tr>
                     )}
