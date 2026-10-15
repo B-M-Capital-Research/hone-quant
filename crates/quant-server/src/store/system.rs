@@ -150,6 +150,22 @@ pub async fn finish_job(
     Ok(())
 }
 
+/// The error of the latest failed run of `(job, run_key)`.
+pub async fn failed_job_error(
+    client: &impl GenericClient,
+    job: &str,
+    run_key: &str,
+) -> Result<Option<String>> {
+    let row = client
+        .query_opt(
+            "SELECT error FROM job_runs WHERE job = $1 AND run_key = $2 AND status = 'failed'
+             ORDER BY id DESC LIMIT 1",
+            &[&job, &run_key],
+        )
+        .await?;
+    Ok(row.and_then(|r| r.get(0)))
+}
+
 pub async fn job_runs(
     client: &impl GenericClient,
     job: Option<&str>,

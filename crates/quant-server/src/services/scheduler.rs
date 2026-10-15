@@ -458,15 +458,16 @@ async fn plan_slots(
             let failed = system::job_runs(&client, Some("plan"), 50)
                 .await?
                 .into_iter()
-                .any(|r| r.run_key == run_key && r.status == "failed");
+                .find(|r| r.run_key == run_key && r.status == "failed");
             drop(client);
-            let reason = if failed { "error" } else { "missed" };
+            let reason = if failed.is_some() { "error" } else { "missed" };
             planner::record_skipped_slot(
                 state,
                 portfolio_id,
                 today,
                 slot_name,
                 reason,
+                failed.and_then(|r| r.error),
                 slot.execute_deadline,
             )
             .await?;
@@ -479,6 +480,7 @@ async fn plan_slots(
                 today,
                 slot_name,
                 "operator",
+                None,
                 slot.execute_deadline,
             )
             .await?;
@@ -491,6 +493,7 @@ async fn plan_slots(
                 today,
                 slot_name,
                 "paused",
+                None,
                 slot.execute_deadline,
             )
             .await?;

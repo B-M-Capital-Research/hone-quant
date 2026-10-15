@@ -598,6 +598,8 @@ pub enum PlanDriver {
         weight: f64,
     },
     Breadth {
+        /// Length of the breadth moving average (in observations, including the live price).
+        line: usize,
         before: f64,
         now: f64,
         crossed_below: usize,
@@ -647,6 +649,8 @@ pub enum PlanDriver {
     },
     TurnoverCap {
         scale: f64,
+        /// The one-way turnover ceiling.
+        limit: f64,
     },
     CashCap {
         scale: f64,
@@ -870,8 +874,9 @@ pub fn explain(plan: &PlanSnapshot, previous: Option<&PlanSnapshot>) -> PlanExpl
             }
         })
         .collect();
+    // Rounded so that float noise (a JSON round trip) cannot reorder sectors that did not move.
     sectors.sort_by(|a, b| {
-        let key = |s: &SectorChange| s.share_effect.unwrap_or(0.0).abs();
+        let key = |s: &SectorChange| (s.share_effect.unwrap_or(0.0).abs() * 1e9).round();
         key(b).total_cmp(&key(a)).then(a.sector.cmp(&b.sector))
     });
 
@@ -1285,6 +1290,7 @@ fn plan_drivers(
         let crossed = x.breadth.crossed_below.len() + x.breadth.crossed_above.len();
         if crossed > 0 || (e1 - e0).abs() >= 0.001 || orders > 0 {
             linked.push(PlanDriver::Breadth {
+                line: plan.params.exposure.breadth_sma,
                 before,
                 now,
                 crossed_below: x.breadth.crossed_below.len(),
@@ -1436,7 +1442,10 @@ fn plan_drivers(
 fn caps(plan: &PlanSnapshot) -> Vec<PlanDriver> {
     let mut out = Vec::new();
     if let Some(scale) = plan.turnover_scale {
-        out.push(PlanDriver::TurnoverCap { scale });
+        out.push(PlanDriver::TurnoverCap {
+            scale,
+            limit: plan.params.rebalance.max_turnover,
+        });
     }
     if let Some(scale) = plan.cash_scale {
         out.push(PlanDriver::CashCap { scale });

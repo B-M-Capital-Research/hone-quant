@@ -127,11 +127,14 @@ pub enum Event {
         deadline: DateTime<Utc>,
         strategy: String,
         preset_id: String,
+        /// Why the plan looks the way it does, one line each in (Chinese, English).
+        why: Option<(String, String)>,
     },
     PlanNoAction {
         plan_id: i64,
         trade_date: NaiveDate,
         slot: String,
+        why: Option<(String, String)>,
     },
     PlanExecuted {
         plan_id: i64,
@@ -284,8 +287,10 @@ pub fn render(event: &Event, display: &DisplaySettings) -> Rendered {
             deadline,
             strategy,
             preset_id,
+            why,
         } => {
             let (strategy_zh, strategy_en) = version_display_names(strategy, preset_id);
+            let (why_zh, why_en) = why_lines(why);
             let when_zh = match execute_after {
                 Some(at) => format!(
                     "将于 {} 自动执行，执行前可在页面取消或调整。",
@@ -310,11 +315,11 @@ pub fn render(event: &Event, display: &DisplaySettings) -> Rendered {
                 title_zh: format!("{trade_date} {}：{orders} 笔调仓", slot_name(slot, Zh)),
                 title_en: format!("{trade_date} {}: {orders} orders", slot_name(slot, En)),
                 body_zh: format!(
-                    "策略「{strategy_zh}」生成 {buys} 笔买入、{sells} 笔卖出，单边换手 {:.1}%。\n{when_zh}",
+                    "策略「{strategy_zh}」生成 {buys} 笔买入、{sells} 笔卖出，单边换手 {:.1}%。{why_zh}\n{when_zh}",
                     turnover * 100.0
                 ),
                 body_en: format!(
-                    "Strategy \"{strategy_en}\" proposes {buys} buys and {sells} sells, one-way turnover {:.1}%.\n{when_en}",
+                    "Strategy \"{strategy_en}\" proposes {buys} buys and {sells} sells, one-way turnover {:.1}%.{why_en}\n{when_en}",
                     turnover * 100.0
                 ),
                 params: json!({"plan_id": plan_id, "orders": orders, "turnover": turnover}),
@@ -325,14 +330,21 @@ pub fn render(event: &Event, display: &DisplaySettings) -> Rendered {
             plan_id,
             trade_date,
             slot,
+            why,
         } => Rendered {
             kind: "plan_no_action",
             category: "plan",
             severity: Severity::Info,
             title_zh: format!("{trade_date} {}：无需调仓", slot_name(slot, Zh)),
             title_en: format!("{trade_date} {}: no trades needed", slot_name(slot, En)),
-            body_zh: "所有持仓都在再平衡容忍带内。".into(),
-            body_en: "Every position is inside its rebalancing band.".into(),
+            body_zh: match why {
+                Some((zh, _)) => zh.clone(),
+                None => "所有持仓都在再平衡容忍带内。".into(),
+            },
+            body_en: match why {
+                Some((_, en)) => en.clone(),
+                None => "Every position is inside its rebalancing band.".into(),
+            },
             params: json!({"plan_id": plan_id}),
             link: Some(format!("/plans/{plan_id}")),
         },
@@ -852,6 +864,14 @@ fn capitalize(text: &str) -> String {
     }
 }
 
+/// The plan's one-line "why" as a sentence to append, in (Chinese, English).
+fn why_lines(why: &Option<(String, String)>) -> (String, String) {
+    match why {
+        Some((zh, en)) => (format!("\n原因：{zh}"), format!("\nWhy: {en}")),
+        None => (String::new(), String::new()),
+    }
+}
+
 fn reason_text(reason: &str, lang: Lang) -> String {
     if reason.trim().is_empty() {
         return String::new();
@@ -1180,11 +1200,13 @@ mod tests {
                 deadline: now,
                 strategy: "S".into(),
                 preset_id: "sector_risk_budget".into(),
+                why: Some(("市场宽度下降。".into(), "Breadth fell.".into())),
             },
             Event::PlanNoAction {
                 plan_id: 1,
                 trade_date: date,
                 slot: "close".into(),
+                why: None,
             },
             Event::PlanExecuted {
                 plan_id: 1,

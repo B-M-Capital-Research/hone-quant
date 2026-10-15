@@ -8,6 +8,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use quant_core::calendar::{Holiday, MarketCalendar, MarketPhase, Session};
+use quant_core::explain::Headline;
 use quant_core::schedule::day_schedule;
 use quant_core::stats;
 use serde::{Deserialize, Serialize};
@@ -17,7 +18,7 @@ use super::context::{self, MaybePortfolio, PortfolioCtx};
 use super::error::{ApiError, ApiResult};
 use crate::auth::CurrentUser;
 use crate::market::{DailyBar, Interval};
-use crate::services::{marketdata, portfolio};
+use crate::services::{explain, marketdata, portfolio};
 use crate::state::{AppState, SharedState};
 use crate::store::portfolios::Book;
 use crate::store::settings::{self, AutomationSettings, BenchmarkSettings, DisplaySettings};
@@ -155,6 +156,7 @@ pub struct PlanWithOrders {
     #[serde(flatten)]
     plan: Plan,
     orders: Vec<Order>,
+    headline: Option<Headline>,
 }
 
 pub async fn dashboard(
@@ -168,10 +170,17 @@ pub async fn dashboard(
     let account_id = valuation.account.id;
     let version = strategy_store::active_version(&client, account_id).await?;
     let targets = trading::latest_targets(&client, account_id).await?;
+    let today = trading::plans_for_date(&client, account_id, market.schedule_date).await?;
+    let mut headlines = explain::headlines(&client, &today).await?;
     let mut plans = Vec::new();
-    for p in trading::plans_for_date(&client, account_id, market.schedule_date).await? {
+    for p in today {
         let orders = trading::orders_for_plan(&client, p.id).await?;
-        plans.push(PlanWithOrders { plan: p, orders });
+        let headline = headlines.remove(&p.id);
+        plans.push(PlanWithOrders {
+            plan: p,
+            orders,
+            headline,
+        });
     }
     let (recent, _) = trading::list_plans(
         &client,

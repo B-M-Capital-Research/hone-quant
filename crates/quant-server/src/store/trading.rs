@@ -466,6 +466,47 @@ pub async fn plan_diagnostics(client: &impl GenericClient, id: i64) -> Result<Va
     Ok(row.get(0))
 }
 
+/// The account's latest plan with engine output generated before `before` (`(generated_at, id)`),
+/// or its latest such plan when `before` is `None`. Skipped slots have no engine output.
+pub async fn previous_explainable_plan(
+    client: &impl GenericClient,
+    account_id: i64,
+    before: Option<(DateTime<Utc>, i64)>,
+) -> Result<Option<Plan>> {
+    let (at, id) = before.unzip();
+    let row = client
+        .query_opt(
+            &format!(
+                "SELECT {PLAN_COLUMNS} FROM plans
+                 WHERE account_id = $1 AND diagnostics ? 'targets'
+                   AND ($2::timestamptz IS NULL OR (generated_at, id) < ($2, $3))
+                 ORDER BY generated_at DESC, id DESC LIMIT 1"
+            ),
+            &[&account_id, &at, &id],
+        )
+        .await?;
+    Ok(row.as_ref().map(plan_from_row))
+}
+
+/// The stored explanation headline (`version`, `previous_plan_id`, `drivers`) of each plan that
+/// has one.
+pub async fn stored_explain_headlines(
+    client: &impl GenericClient,
+    ids: &[i64],
+) -> Result<HashMap<i64, Value>> {
+    let rows = client
+        .query(
+            "SELECT id, jsonb_build_object(
+                 'version', diagnostics->'explain'->'version',
+                 'previous_plan_id', diagnostics->'explain'->'previous_plan_id',
+                 'drivers', diagnostics->'explain'->'drivers')
+             FROM plans WHERE id = ANY($1) AND diagnostics ? 'explain'",
+            &[&ids],
+        )
+        .await?;
+    Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+}
+
 pub async fn plans_for_date(
     client: &impl GenericClient,
     account_id: i64,
