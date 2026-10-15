@@ -1124,6 +1124,36 @@ mod tests {
         params
     }
 
+    /// FNV-1a over the exact bits of the target weights and statuses for every preset, with and
+    /// without holdings, exclusions and locks. Recorded before the plan explanations were added:
+    /// diagnostics may grow, the weights may not change.
+    #[test]
+    fn target_weights_are_unchanged_by_diagnostics() {
+        let fixture = universe();
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut feed = |bits: u64| {
+            for byte in bits.to_le_bytes() {
+                hash ^= byte as u64;
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+        };
+        let held = [0.1, 0.0, 0.05, 0.02, 0.0, 0.08, 0.0, 0.01];
+        for p in presets() {
+            for result in [
+                fixture.run(&p.params),
+                fixture.run_with(&p.params, &["MU"], &["VST"], &held),
+            ] {
+                for (w, a) in result.weights.iter().zip(&result.assets) {
+                    feed(w.to_bits());
+                    feed(a.status as u64);
+                }
+                feed(result.exposure_target.to_bits());
+                feed(result.breadth.unwrap_or(-1.0).to_bits());
+            }
+        }
+        assert_eq!(hash, 0x5d20_0d77_be04_4625, "fingerprint {hash:#x}");
+    }
+
     #[test]
     fn default_params_validate_and_presets_validate() {
         assert!(StrategyParams::default().validate().is_ok());

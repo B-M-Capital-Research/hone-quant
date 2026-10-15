@@ -626,6 +626,8 @@ mod tests {
     use crate::strategy::preset;
     use chrono::Duration;
 
+    const GOLDEN: u64 = 0xaf9b_78ea_cfe0_fe3c;
+
     fn trading_dates(n: usize) -> Vec<NaiveDate> {
         let mut out = Vec::new();
         let mut d = NaiveDate::from_ymd_opt(2023, 1, 2).unwrap();
@@ -728,6 +730,33 @@ mod tests {
         // index would be 8% higher).
         assert!((ew[k - t0] / ew[k - 1 - t0] - 1.2).abs() < 1e-9);
         assert!((ew[k + 1 - t0] / ew[k - 1 - t0] - 1.0).abs() < 1e-9);
+    }
+
+    /// FNV-1a over the exact bits of every trade of a backtest per preset. Diagnostics may be
+    /// added to the engine and the rebalancer, but for the same inputs the trades must not change:
+    /// this fingerprint was recorded before the plan explanations were added.
+    #[test]
+    fn trading_decisions_are_unchanged_by_diagnostics() {
+        let data = data(700);
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut feed = |bits: u64| {
+            for byte in bits.to_le_bytes() {
+                hash ^= byte as u64;
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+        };
+        for p in crate::strategy::presets() {
+            let result = run_backtest(&config(&data, p.params), &data).unwrap();
+            for trade in &result.trades {
+                feed(trade.date.num_days_from_ce() as u64);
+                feed(trade.qty.to_bits());
+                feed(trade.price.to_bits());
+                feed(trade.side as u64);
+                feed(trade.reason as u64);
+            }
+            feed(result.points.last().unwrap().nav.to_bits());
+        }
+        assert_eq!(hash, GOLDEN, "fingerprint {hash:#x}");
     }
 
     #[test]
