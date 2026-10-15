@@ -25,7 +25,8 @@ export function ExposurePanel(props: { view: ExposureView }) {
     const history = v().history;
     if (history.length < 2) return null;
     const p = readPalette();
-    const labels = history.map((h) => `${h.trade_date.slice(5)} ${common().slot[h.slot]}`);
+    // Plan numbers keep the axis readable; the tooltip carries date and slot.
+    const labels = history.map((h) => `#${h.plan_id}`);
     const pct = (x: number | null) => (x == null ? null : Math.round(x * 1000) / 10);
     return {
       animation: false,
@@ -40,7 +41,7 @@ export function ExposurePanel(props: { view: ExposureView }) {
           return [`#${h.plan_id} · ${esc(h.trade_date)} ${esc(common().slot[h.slot])}`, ...rows].join("<br/>");
         },
       },
-      xAxis: { type: "category", data: labels, ...axisBase(p), splitLine: { show: false } },
+      xAxis: { type: "category", data: labels, ...axisBase(p), axisLabel: { ...axisBase(p).axisLabel, hideOverlap: true }, splitLine: { show: false } },
       yAxis: { type: "value", min: 0, max: 100, ...axisBase(p), axisLabel: { ...axisBase(p).axisLabel, formatter: "{value}%" } },
       series: [
         { name: t().series_breadth, type: "line", data: history.map((h) => pct(h.breadth)), symbolSize: 5, lineStyle: { width: 2, color: p.series[0] }, itemStyle: { color: p.series[0] } },
