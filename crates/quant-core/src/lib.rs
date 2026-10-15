@@ -12,6 +12,7 @@
 //! - [`strategy`]: parameters, presets and the target-weight engine.
 //! - [`rebalance`]: drift bands, lot rounding, turnover and cash constraints → orders.
 //! - [`costs`]: commissions, slippage and fees.
+//! - [`explain`]: why a plan differs from the previous one, as codes and numbers.
 //! - [`backtest`]: daily-bar simulation using all of the above.
 //! - [`metrics`]: performance analytics.
 
@@ -24,6 +25,7 @@ pub mod alloc;
 pub mod backtest;
 pub mod calendar;
 pub mod costs;
+pub mod explain;
 pub mod metrics;
 pub mod rebalance;
 pub mod schedule;
