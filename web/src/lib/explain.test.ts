@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { setLocale } from "@/i18n";
-import { driverChip, oneLine, orderWhy } from "@/lib/explain";
+import { driverChip, driverText, oneLine, orderWhy } from "@/lib/explain";
 import type { OrderExplanation, PlanDriver, PlanExplanation } from "@/lib/types";
 
 // Plan #17 of the production paper account (2026-10-15 open), as explained by the server.
@@ -53,6 +53,14 @@ describe("plan explanations", () => {
     expect(oneLine([drivers[2], drivers[3]], sector)).toBe("18 trend breaks (10 orders); AI chips budget 13.3%→11.0%.");
     setLocale("zh");
     expect(oneLine(drivers.slice(0, 1), sector)).toBe("市场宽度 57.8%→39.1%，12 只跌破 200 日线，目标仓位 82.0%→74.8%。");
+  });
+
+  test("counts agree in number", () => {
+    expect(driverText({ code: "retry", orders: 1, weight: 0.01 }, sector)).toBe("Retrying 1 order that did not fill last plan");
+    expect(driverText({ code: "trend_recoveries", count: 2, orders: 0, weight: 0 }, sector)).toBe("2 trend recoveries");
+    expect(driverText({ code: "newly_eligible", count: 34, cut: 16, orders: 50, weight: 0.8 }, sector)).toBe(
+      "34 names became eligible and entered, cutting 16 existing positions to share their sector budgets",
+    );
   });
 
   test("chips are short", () => {

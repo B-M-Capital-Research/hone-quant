@@ -15,6 +15,14 @@ const p1 = (value: number | null | undefined) => fmtPct(value, { dp: 1 });
 /** A weight gap in percentage points, unsigned: 0.0759 → "7.6". */
 const pts = (value: number) => (Math.abs(value) * 100).toFixed(1);
 
+type Unit = "order" | "name" | "position" | "trend_break" | "trend_recovery";
+
+/** "1 order", "3 orders" (Chinese has no plural). */
+export function count(n: number, unit: Unit): string {
+  const u = explainText().unit;
+  return tpl(n === 1 ? u[`${unit}_one`] : u[`${unit}_many`], { n });
+}
+
 export function orderDriverName(driver: OrderDriver): string {
   return explainText().order_driver[driver] ?? driver;
 }
@@ -32,7 +40,7 @@ export function driverText(d: PlanDriver, sector: SectorName): string {
     case "no_action":
       return tpl(t[`no_action_${d.reason}` as const], { gap: pts(d.gap) });
     case "newly_eligible":
-      return tpl(t.newly_eligible, { count: d.count });
+      return tpl(d.cut ? t.newly_eligible_cut : t.newly_eligible, { count: d.count, names: count(d.count, "name"), cut: count(d.cut, "position") });
     case "breadth": {
       const crossed =
         d.crossed_below && d.crossed_above
@@ -51,19 +59,19 @@ export function driverText(d: PlanDriver, sector: SectorName): string {
       });
     }
     case "trend_breaks":
-      return tpl(d.orders ? t.trend_breaks_orders : t.trend_breaks, { count: d.count, orders: d.orders });
+      return tpl(d.orders ? t.trend_breaks_orders : t.trend_breaks, { breaks: count(d.count, "trend_break"), orders: count(d.orders, "order") });
     case "trend_recoveries":
-      return tpl(t.trend_recoveries, { count: d.count });
+      return tpl(t.trend_recoveries, { recoveries: count(d.count, "trend_recovery") });
     case "sector_budget":
       return tpl(t.sector_budget, { sector: sector(d.sector), before: p1(d.before), now: p1(d.now) });
     case "orders":
-      return tpl(t.orders, { orders: d.orders, driver: orderDriverName(d.driver) });
+      return tpl(t.orders, { orders: count(d.orders, "order"), driver: orderDriverName(d.driver) });
     case "price_drift":
-      return tpl(t.price_drift, { orders: d.orders });
+      return tpl(t.price_drift, { orders: count(d.orders, "order") });
     case "carry_over":
-      return tpl(d.previous_cash_scale != null ? t.carry_over_cash : t.carry_over, { orders: d.orders });
+      return tpl(d.previous_cash_scale != null ? t.carry_over_cash : t.carry_over, { orders: count(d.orders, "order") });
     case "retry":
-      return tpl(t.retry, { orders: d.orders });
+      return tpl(t.retry, { orders: count(d.orders, "order") });
     case "turnover_cap":
       return tpl(t.turnover_cap, { limit: fmtPct(d.limit, { dp: 0 }), scale: fmtPct(d.scale, { dp: 0 }) });
     case "cash_cap":

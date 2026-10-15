@@ -147,6 +147,17 @@ fn p1(value: f64) -> String {
     format!("{:.1}%", value * 100.0)
 }
 
+/// "1 order", "3 orders"; "1 trend recovery", "2 trend recoveries".
+fn plural(n: usize, noun: &str) -> String {
+    if n == 1 {
+        format!("1 {noun}")
+    } else if let Some(stem) = noun.strip_suffix('y') {
+        format!("{n} {stem}ies")
+    } else {
+        format!("{n} {noun}s")
+    }
+}
+
 fn pts(value: f64) -> String {
     format!("{:.1}", value.abs() * 100.0)
 }
@@ -257,13 +268,18 @@ pub fn driver_text(
                 "nothing to trade: no holdings and no targets".into()
             }
         },
-        PlanDriver::NewlyEligible { count, .. } => {
-            if zh {
-                format!("{count} 只公司历史数据已满足要求、新纳入配置")
-            } else {
-                format!("{count} names became eligible and entered")
+        PlanDriver::NewlyEligible { count, cut, .. } => match (zh, *cut) {
+            (true, 0) => format!("{count} 只公司历史数据已满足要求、新纳入配置"),
+            (true, c) => {
+                format!("{count} 只公司历史数据已满足要求、新纳入配置，{c} 只原有持仓让出板块预算")
             }
-        }
+            (false, 0) => format!("{} became eligible and entered", plural(*count, "name")),
+            (false, c) => format!(
+                "{} became eligible and entered, cutting {} to share their sector budgets",
+                plural(*count, "name"),
+                plural(c, "existing position")
+            ),
+        },
         PlanDriver::Breadth {
             line,
             before,
@@ -306,14 +322,14 @@ pub fn driver_text(
         PlanDriver::TrendBreaks { count, orders, .. } => match (zh, *orders) {
             (true, 0) => format!("{count} 只趋势转弱"),
             (true, o) => format!("{count} 只趋势转弱（{o} 笔因此减仓）"),
-            (false, 0) => format!("{count} trend breaks"),
-            (false, o) => format!("{count} trend breaks ({o} orders)"),
+            (false, 0) => plural(*count, "trend break"),
+            (false, o) => format!("{} ({})", plural(*count, "trend break"), plural(o, "order")),
         },
         PlanDriver::TrendRecoveries { count, .. } => {
             if zh {
                 format!("{count} 只趋势回升")
             } else {
-                format!("{count} trend recoveries")
+                plural(*count, "trend recovery")
             }
         }
         PlanDriver::SectorBudget {
@@ -334,14 +350,14 @@ pub fn driver_text(
             if zh {
                 format!("{orders} 笔源于{name}")
             } else {
-                format!("{orders} orders from {name}")
+                format!("{} from {name}", plural(*orders, "order"))
             }
         }
         PlanDriver::PriceDrift { orders, .. } => {
             if zh {
                 format!("{orders} 笔是价格漂移后的再平衡")
             } else {
-                format!("{orders} orders rebalance price drift")
+                format!("{} rebalancing price drift", plural(*orders, "order"))
             }
         }
         PlanDriver::CarryOver {
@@ -351,18 +367,23 @@ pub fn driver_text(
         } => match (zh, previous_cash_scale.is_some()) {
             (true, false) => format!("完成上一计划因换手上限未做完的部分（{orders} 笔）"),
             (true, true) => format!("完成上一计划因现金不足未做完的部分（{orders} 笔）"),
-            (false, false) => {
-                format!("finishing what the turnover cap left undone last plan ({orders} orders)")
-            }
-            (false, true) => {
-                format!("finishing what cash left undone last plan ({orders} orders)")
-            }
+            (false, false) => format!(
+                "finishing what the turnover cap left undone last plan ({})",
+                plural(*orders, "order")
+            ),
+            (false, true) => format!(
+                "finishing what cash left undone last plan ({})",
+                plural(*orders, "order")
+            ),
         },
         PlanDriver::Retry { orders, .. } => {
             if zh {
                 format!("重试上一计划未成交的 {orders} 笔")
             } else {
-                format!("retrying {orders} orders that did not fill last plan")
+                format!(
+                    "retrying {} that did not fill last plan",
+                    plural(*orders, "order")
+                )
             }
         }
         PlanDriver::TurnoverCap { scale, limit } => {

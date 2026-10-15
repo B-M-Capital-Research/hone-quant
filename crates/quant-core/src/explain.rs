@@ -594,6 +594,8 @@ pub enum PlanDriver {
     },
     NewlyEligible {
         count: usize,
+        /// Existing positions cut because the newcomers share their sector budgets.
+        cut: usize,
         orders: usize,
         weight: f64,
     },
@@ -1276,6 +1278,11 @@ fn plan_drivers(
     if !x.newly_eligible.is_empty() || orders > 0 {
         linked.push(PlanDriver::NewlyEligible {
             count: x.newly_eligible.len(),
+            cut: x
+                .orders
+                .iter()
+                .filter(|o| o.driver == OrderDriver::NewPeers)
+                .count(),
             orders,
             weight,
         });
@@ -1411,11 +1418,13 @@ fn plan_drivers(
             invested_target: plan.cash.invested_target,
             orders: waived,
         });
-    // A waiver caused by the exposure moving the same way (breadth fell and the book is now too
-    // invested, or the reverse) makes breadth the root cause of the broad trade: it leads.
+    // A waiver that the exposure change caused (without it the gap would have been within the
+    // tolerance: breadth fell and the book is now too invested, or the reverse) makes breadth the
+    // root cause of the broad trade, so it leads.
     let breadth_caused_waiver = match (plan.cash.waiver, x.exposure.before, x.exposure.now) {
-        (Some(BandWaiver::Sells), Some(e0), Some(e1)) => waived > 0 && e1 < e0 - 0.001,
-        (Some(BandWaiver::Buys), Some(e0), Some(e1)) => waived > 0 && e1 > e0 + 0.001,
+        (Some(_), Some(e0), Some(e1)) => {
+            waived > 0 && (plan.cash.gap - (e1 - e0)).abs() <= plan.cash.band
+        }
         _ => false,
     };
     if breadth_caused_waiver

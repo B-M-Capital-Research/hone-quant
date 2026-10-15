@@ -668,7 +668,7 @@ export type PlanDriver =
   | { code: "strategy_changed"; from: number | null; to: number | null }
   | { code: "history_limited"; insufficient: number; universe: number }
   | { code: "no_action"; reason: NoActionReason; gap: number }
-  | ({ code: "newly_eligible"; count: number } & Tally)
+  | ({ code: "newly_eligible"; count: number; cut: number } & Tally)
   | ({ code: "breadth"; line: number; before: number; now: number; crossed_below: number; crossed_above: number; exposure_before: number; exposure_now: number } & Tally)
   | ({ code: "trend_breaks"; count: number } & Tally)
   | ({ code: "trend_recoveries"; count: number } & Tally)
