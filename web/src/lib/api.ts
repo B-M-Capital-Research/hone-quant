@@ -124,7 +124,7 @@ export const api = {
 
   // Plans & trading
   plans: (q: { from?: string; to?: string; status?: string; limit?: number; offset?: number }) =>
-    get<{ plans: T.Plan[]; total: number }>(`/plans${qs(q)}`),
+    get<{ plans: T.Plan[]; total: number; headlines: Record<string, T.Headline> }>(`/plans${qs(q)}`),
   plan: (id: number) => get<T.PlanDetail>(`/plans/${id}`),
   approvePlan: (id: number, note = "") => post<{ report: unknown }>(`/plans/${id}/approve`, { note }),
   cancelPlan: (id: number, reason = "") => post<{ ok: boolean }>(`/plans/${id}/cancel`, { reason }),

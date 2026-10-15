@@ -4,6 +4,7 @@ import { Icon } from "@/components/Icon";
 import { Empty, ErrorState, Kpi, Loading, OrderStatusChip, PlanStatusChip, SideChip, confirmAction, toast, toastError } from "@/components/ui";
 import { locale, tpl } from "@/i18n";
 import { common } from "@/i18n/common";
+import { explainText } from "@/i18n/explain";
 import { plansText } from "@/i18n/plans";
 import { ApiError, api } from "@/lib/api";
 import { onServerEvent } from "@/lib/events";
@@ -15,6 +16,7 @@ import "@/styles/plans.css";
 import { actorName, strategyName } from "@/lib/names";
 import { sectorLabel, throttle } from "./overview/util";
 import { ParamsView } from "./plans/ParamsView";
+import { OrderWhyCell, WhyCard } from "./plans/Why";
 
 const TABS = ["orders", "fills", "targets", "sectors", "skipped", "params", "audit"] as const;
 type Tab = (typeof TABS)[number];
@@ -234,6 +236,8 @@ export default function PlanDetail() {
 
             <Lifecycle plan={plan()} />
 
+            <WhyCard detail={d()} name={name} />
+
             <div class="kpis plan-kpis">
               <Kpi
                 label={t().detail.kpi_nav}
@@ -244,9 +248,24 @@ export default function PlanDetail() {
                   </span>
                 }
               />
-              <Kpi label={t().detail.kpi_exposure} value={<span class="num">{fmtPct(plan().invested_target, { dp: 1 })}</span>} />
-              <Kpi label={t().detail.kpi_breadth} value={<span class="num">{fmtPct(plan().breadth, { dp: 0 })}</span>} />
-              <Kpi label={t().detail.kpi_vol} value={<span class="num">{fmtPct(plan().est_vol, { dp: 1 })}</span>} />
+              <Kpi
+                label={t().detail.kpi_exposure}
+                value={<span class="num">{fmtPct(plan().invested_target, { dp: 1 })}</span>}
+                delta={<PrevValue value={d().explanation?.exposure.before} now={plan().exposure_target} dp={1} />}
+              />
+              <Kpi
+                label={t().detail.kpi_breadth}
+                value={
+                  <span class="num">
+                    {fmtPct(plan().breadth, { dp: 1 })}
+                    <Show when={d().explanation?.breadth.counted_now}>
+                      <span class="muted xs"> {d().explanation!.breadth.above_now}/{d().explanation!.breadth.counted_now}</span>
+                    </Show>
+                  </span>
+                }
+                delta={<PrevValue value={d().explanation?.breadth.before} now={plan().breadth} dp={1} />}
+              />
+              <Kpi label={t().detail.kpi_vol} value={<span class="num">{fmtPct(plan().est_vol, { dp: 1 })}</span>} delta={<PrevValue value={d().explanation?.est_vol.before} now={plan().est_vol} dp={1} />} />
               <Kpi label={t().detail.kpi_turnover} value={<span class="num">{fmtPct(plan().turnover, { dp: 1 })}</span>} />
               <Show when={plan().summary?.executed}>
                 {(e) => (
@@ -352,6 +371,23 @@ export default function PlanDetail() {
 
 // ---------------------------------------------------------------------------------------------
 
+/** "prev 57.8%" under a KPI, coloured by direction, when there is a previous plan. */
+function PrevValue(props: { value: number | null | undefined; now: number | null | undefined; dp: number }) {
+  const direction = () => {
+    if (props.value == null || props.now == null) return "";
+    const diff = Number(((props.now - props.value) * 100).toFixed(props.dp));
+    return diff > 0 ? "▲ " : diff < 0 ? "▼ " : "";
+  };
+  return (
+    <Show when={props.value != null}>
+      <span class="muted num">
+        {direction()}
+        {tpl(explainText().card.kpi_prev, { value: fmtPct(props.value, { dp: props.dp }) })}
+      </span>
+    </Show>
+  );
+}
+
 function Lifecycle(props: { plan: Plan }) {
   const t = plansText;
   const p = () => props.plan;
@@ -361,7 +397,13 @@ function Lifecycle(props: { plan: Plan }) {
     const d = t().detail;
     const out: Step[] = [{ label: d.step_generated, detail: `${fmtDual(p().generated_at, "auto")} · ${actorName(p().created_by)}`, state: "done" }];
     const status = p().status;
-    if (status === "skipped") return [{ label: d.step_skipped, detail: p().error ?? undefined, state: "off" }];
+    if (status === "skipped") {
+      // The reason lives in the summary; for a failed generation the error says what failed.
+      const reason = p().summary?.skip_reason;
+      const label = reason ? ((common().skip_reason as Record<string, string>)[reason] ?? reason) : "";
+      const detail = [label, p().error].filter(Boolean).join(" · ");
+      return [{ label: d.step_skipped, detail: detail || undefined, state: "off" }];
+    }
     if (status === "no_action") return [...out, { label: d.step_no_action, state: "done" }];
     if (p().automation_mode === "approval") {
       out.push({
@@ -460,6 +502,7 @@ function OrdersTable(props: { detail: Detail; name: (s: string) => string; edita
     }
     return { buys, sells };
   });
+  const why = createMemo(() => new Map((props.detail.explanation?.orders ?? []).map((o) => [o.symbol, o])));
   return (
     <Show when={props.detail.orders.length} fallback={<Empty title={t().detail.no_orders} icon="plans" />}>
       <div class="table-wrap">
@@ -474,6 +517,7 @@ function OrdersTable(props: { detail: Detail; name: (s: string) => string; edita
               <th class="r">{t().detail.col_ref}</th>
               <th class="r">{t().detail.col_notional}</th>
               <th class="r">{t().detail.col_weights}</th>
+              <th>{t().detail.col_why}</th>
               <th>{t().detail.col_status}</th>
               <Show when={props.editable}>
                 <th />
@@ -505,6 +549,9 @@ function OrdersTable(props: { detail: Detail; name: (s: string) => string; edita
                   <td class="r num nowrap">
                     <span class="muted">{fmtPct(o.weight_before, { dp: 2 })}</span> → <b>{fmtPct(o.weight_target, { dp: 2 })}</b> <span class="muted">→ {fmtPct(o.weight_after, { dp: 2 })}</span>
                   </td>
+                  <td class="why-col">
+                    <OrderWhyCell order={why().get(o.symbol)} explanation={props.detail.explanation} />
+                  </td>
                   <td>
                     <OrderStatusChip status={o.status} reason={o.status_reason} />
                   </td>
@@ -525,7 +572,7 @@ function OrdersTable(props: { detail: Detail; name: (s: string) => string; edita
             <tr>
               <td />
               <td colSpan={5}>{t().detail.totals}</td>
-              <td class="r num nowrap" colSpan={2}>
+              <td class="r num nowrap" colSpan={3}>
                 {tpl(t().detail.buys, { value: fmtMoney(totals().buys, { dp: 0 }) })} · {tpl(t().detail.sells, { value: fmtMoney(totals().sells, { dp: 0 }) })}
               </td>
               <td colSpan={props.editable ? 2 : 1} />

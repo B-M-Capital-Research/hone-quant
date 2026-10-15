@@ -317,6 +317,7 @@ export interface Restriction {
 
 export interface PlanWithOrders extends Plan {
   orders: Order[];
+  headline: Headline | null;
 }
 
 export interface Dashboard {
@@ -520,6 +521,9 @@ export interface AssetDiagnostics {
   momentum: number | null;
   momentum_rank: number | null;
   trend: number | null;
+  /** price / SMA(breadth) − 1; absent on plans stored before it was recorded. */
+  breadth_gap?: number | null;
+  above_breadth_line?: boolean | null;
   momentum_multiplier: number;
   trend_multiplier: number;
   score: number;
@@ -609,8 +613,142 @@ export interface PlanDiagnostics {
     cash_after: number;
     turnover_scale: number | null;
     cash_scale: number | null;
+    /** Recorded from this version on. */
+    invested_now?: number;
+    invested_target?: number;
+    cash_gap?: number;
+    cash_band?: number;
+    band_waiver?: BandWaiver | null;
+    band_waived?: string[];
   };
   history?: { from: DateStr | null; to: DateStr | null };
+  explain?: PlanExplanation;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Plan explanations (quant_core::explain)
+// ---------------------------------------------------------------------------------------------
+
+export type BandWaiver = "buys" | "sells";
+
+export type OrderDriver =
+  | "first_plan"
+  | "newly_eligible"
+  | "added_to_universe"
+  | "back_above_min_weight"
+  | "restriction_lifted"
+  | "trend_reentry"
+  | "below_min_weight"
+  | "trend_exit"
+  | "excluded"
+  | "not_in_universe"
+  | "lost_eligibility"
+  | "exposure"
+  | "sector_budget"
+  | "trend"
+  | "momentum"
+  | "volatility"
+  | "peers"
+  | "new_peers"
+  | "price_drift"
+  | "carry_over_turnover"
+  | "carry_over_cash"
+  | "retry";
+
+export type NoActionReason = "within_bands" | "below_min_trade" | "not_tradable" | "nothing_to_trade";
+
+/** Orders attributed to a plan-level driver and the weight they trade. */
+interface Tally {
+  orders: number;
+  weight: number;
+}
+
+export type PlanDriver =
+  | { code: "first_plan"; eligible: number; universe: number }
+  | { code: "strategy_changed"; from: number | null; to: number | null }
+  | { code: "history_limited"; insufficient: number; universe: number }
+  | { code: "no_action"; reason: NoActionReason; gap: number }
+  | ({ code: "newly_eligible"; count: number } & Tally)
+  | ({ code: "breadth"; line: number; before: number; now: number; crossed_below: number; crossed_above: number; exposure_before: number; exposure_now: number } & Tally)
+  | ({ code: "trend_breaks"; count: number } & Tally)
+  | ({ code: "trend_recoveries"; count: number } & Tally)
+  | ({ code: "sector_budget"; sector: string; before: number; now: number } & Tally)
+  | ({ code: "orders"; driver: OrderDriver } & Tally)
+  | ({ code: "price_drift" } & Tally)
+  | ({ code: "carry_over"; previous_turnover_scale: number | null; previous_cash_scale: number | null } & Tally)
+  | ({ code: "retry" } & Tally)
+  | { code: "turnover_cap"; scale: number; limit: number }
+  | { code: "cash_cap"; scale: number }
+  | { code: "band_waiver"; side: BandWaiver; gap: number; invested_now: number; invested_target: number; orders: number }
+  | { code: "frozen"; count: number }
+  | { code: "excluded"; count: number };
+
+export interface Headline {
+  previous_plan_id: number | null;
+  drivers: PlanDriver[];
+}
+
+export interface OrderExplanation {
+  symbol: string;
+  sector: string | null;
+  side: Side;
+  weight_before: number;
+  weight_target: number;
+  previous_target: number | null;
+  drift: number | null;
+  model: number | null;
+  driver: OrderDriver;
+  status_before: AssetStatus | null;
+  status_now: AssetStatus | null;
+  components: { driver: OrderDriver; log: number; weight: number }[];
+  price_drift: number | null;
+  left_over: number | null;
+  left_over_cause: OrderDriver | null;
+  previous_order_status: OrderStatus | null;
+  previous_status_reason: string | null;
+  price_change: number | null;
+  trend_multiplier_before: number | null;
+  trend_multiplier_now: number | null;
+  band_waived: boolean;
+  scaled: boolean;
+}
+
+export interface PlanExplanation extends Headline {
+  version: number;
+  breadth: {
+    source: "recorded" | "reconstructed" | "unavailable";
+    before: number | null;
+    now: number | null;
+    above_before: number | null;
+    counted_before: number | null;
+    above_now: number | null;
+    counted_now: number | null;
+    crossed_below: string[];
+    crossed_above: string[];
+  };
+  exposure: { before: number | null; now: number | null };
+  est_vol: { before: number | null; now: number | null };
+  cash: { invested_now: number; invested_target: number; gap: number; band: number; waiver: BandWaiver | null; derived: boolean };
+  turnover_scale: number | null;
+  cash_scale: number | null;
+  universe: number;
+  insufficient_history: number;
+  newly_eligible: string[];
+  trend_breaks: { symbol: string; before: number; now: number }[];
+  trend_recoveries: { symbol: string; before: number; now: number }[];
+  sectors: { sector: string; before: number | null; now: number; share_effect: number | null }[];
+  frozen: Flag[];
+  excluded: Flag[];
+  no_action: {
+    reason: NoActionReason;
+    within_band: number;
+    below_min_trade: number;
+    not_tradable: number;
+    rounded: number;
+    closest: { symbol: string; drift: number; band: number } | null;
+  } | null;
+  tally: { driver: OrderDriver; orders: number; weight: number }[];
+  orders: OrderExplanation[];
 }
 
 export interface AuditEntry {
@@ -629,6 +767,8 @@ export interface PlanDetail {
   orders: Order[];
   fills: Fill[];
   diagnostics: PlanDiagnostics;
+  /** Why this plan: stored at generation, or computed on read for older plans. */
+  explanation: PlanExplanation | null;
   audit: AuditEntry[];
   strategy: StrategyVersion | null;
   names: Record<string, { zh: string; en: string; sector: string }>;
