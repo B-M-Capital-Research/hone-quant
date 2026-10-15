@@ -31,11 +31,23 @@ dividend-adjusted closes.
 about six months) of history; otherwise it is reported as *no price* / *short history* and gets no
 new allocation (an existing position without a price is held as is).
 
-**Step 1 — how much to invest (market state).** *Breadth* is the share of eligible companies
-trading above their 200-day average. Target exposure moves linearly between the minimum and
-maximum exposure (60% and 98% by default):
+**Step 1 — how much to invest (market state).** *Breadth* is the equal-weight share of eligible
+companies whose decision price is above their 200-day average. Precisely:
 
-> exposure = min + (max − min) × breadth
+- only *active* companies count: a usable quote and at least 126 sessions of history (the
+  eligibility rule above);
+- each company's series is its last `max_lookback` adjusted closes with the live quote appended,
+  so the 200-day average is the 199 previous closes plus the live price, and the company counts
+  as above the line when the live price is strictly above that average;
+- an active company with fewer than 200 price points (126–199 sessions of history) has no
+  200-day average and is left out of both the count and the total;
+- every counted company weighs the same, whatever its size or weight.
+
+Target exposure moves linearly between the minimum and maximum exposure (60% and 98% by default):
+
+> exposure = min + (max − min) × breadth = 0.60 + 0.38 × breadth
+
+so every name of 64 that crosses the line moves exposure by 0.38 / 64 ≈ 0.6 percentage points.
 
 Broad weakness therefore raises cash automatically; broad strength puts it to work. Cash is the
 barbell's safe end.
@@ -89,6 +101,53 @@ momentum, rank, multipliers and final weight — and shows them on the plan's pa
 5. Whole shares (buys rounded down); trades under US$1,000 are dropped (exits excepted).
 6. Sells first; buys are scaled down if cash after costs would not cover them — the paper account
    never borrows or shorts.
+
+### Reading a plan's explanation
+
+Every plan is compared with the account's previous plan (the latest one that ran the engine;
+skipped slots have none), and the comparison is stored with the plan and shown as *Why this plan*
+on its page, as a one-line *why* in the plans list, on the overview and in the plan
+notification. Plans stored before explanations existed are explained when they are read, from
+their stored diagnostics.
+
+**Plan level.** The headline lists, in order: context (first plan, a changed strategy, a universe
+limited by short histories, or why nothing traded), then the driver behind the most traded
+weight, the caps, the band waiver, and the remaining drivers.
+
+| Driver | Meaning |
+| --- | --- |
+| Breadth | Breadth before → now with the names that crossed the 200-day line, and target exposure before → now. It leads when the exposure change caused the band waiver (without it the cash gap would have been inside the tolerance). |
+| Band waiver | Invested weight now vs the target invested weight: when they are more than 5 points apart, every name on the side that closes the gap trades even inside its band. |
+| Trend breaks / recoveries | Names whose trend multiplier fell (rose) by more than 0.1 since the previous plan. |
+| Sector budget | The sector whose budget change moved the most traded weight. |
+| Price drift | Orders that only bring a name back to target after its price moved. |
+| Carry-over | Orders that finish what the turnover cap (or cash) left undone in the previous plan. |
+| Retry | Orders for names whose previous order was rejected, expired or did not fill. |
+| Newly eligible | Names that now have enough history, and the existing positions cut to share their sector budgets. |
+| Turnover cap / cash cap | This plan was scaled down (and by how much). |
+| Nothing to trade | The cash gap was inside the 5-point tolerance and every holding inside its band; the explanation names the holding closest to its band. |
+
+**Order level.** Each order's trade, target − before, is the *model change* (target − previous
+target) minus *drift* (before − previous target):
+
+- **Drift** splits into what prices did since the previous plan and what the previous plan left
+  undone (a turnover or cash cap, or an order that was rejected or did not fill). Residuals of a
+  band or of the minimum trade are older price drift.
+- **Model change** splits in log space: ln(target₁ / target₀) = exposure ln(E₁/E₀) + sector share
+  ln((B₁/E₁)/(B₀/E₀)) + trend ln(t₁/t₀) + momentum ln(m₁/m₀) − vol_power · ln(σ₁/σ₀) + a
+  remainder (peers in the sector, caps, pruning), where E is target exposure (times any volatility
+  scaling), B the sector budget, t and m the name's trend and momentum multipliers and σ its
+  volatility. Each piece's share of the log change is applied to the model change in weight
+  points.
+- The order's driver is the largest piece pushing in the direction of the trade; drift wins when
+  it is larger than the model change. Entries and exits are explained by the name's status:
+  newly eligible, back above the minimum weight, below the minimum weight, excluded, no longer in
+  the universe, and so on.
+
+Older plans did not record each company's position against the breadth line; with the default
+parameters the trend average and the breadth average have the same length, so the position is
+rebuilt from the trend signal (trend > 0 means above the line). Their band waiver is derived from
+the plan's NAV, cash and target invested weight.
 
 ## 4. Schedule and automation
 
