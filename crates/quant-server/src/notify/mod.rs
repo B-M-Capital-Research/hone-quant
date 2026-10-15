@@ -212,6 +212,8 @@ pub enum Event {
         trades: usize,
         best: Option<(String, f64)>,
         worst: Option<(String, f64)>,
+        /// What drove the day's plans, in (Chinese, English).
+        drivers: Option<(String, String)>,
     },
     WeeklyReport {
         week_end: NaiveDate,
@@ -220,6 +222,8 @@ pub enum Event {
         max_drawdown: f64,
         trades: usize,
         nav: f64,
+        /// What drove the week's plans, in (Chinese, English).
+        drivers: Option<(String, String)>,
     },
     PreOpen {
         trade_date: NaiveDate,
@@ -636,7 +640,9 @@ pub fn render(event: &Event, display: &DisplaySettings) -> Rendered {
             trades,
             best,
             worst,
+            drivers,
         } => {
+            let (drivers_zh, drivers_en) = period_lines(drivers);
             let movers_zh = match (best, worst) {
                 (Some(b), Some(w)) => {
                     format!("\n领涨 {} {}，领跌 {} {}。", b.0, pct(b.1), w.0, pct(w.1))
@@ -656,12 +662,12 @@ pub fn render(event: &Event, display: &DisplaySettings) -> Rendered {
                 title_zh: format!("{date} 收盘：{} ({})", money(*day_pnl), pct(*day_return)),
                 title_en: format!("{date} close: {} ({})", money(*day_pnl), pct(*day_return)),
                 body_zh: format!(
-                    "组合净值 {}，累计收益 {}，今日成交 {trades} 笔。{movers_zh}",
+                    "组合净值 {}，累计收益 {}，今日成交 {trades} 笔。{movers_zh}{drivers_zh}",
                     money(*nav),
                     pct(*total_return)
                 ),
                 body_en: format!(
-                    "NAV {}, total return {}, {trades} fills today.{movers_en}",
+                    "NAV {}, total return {}, {trades} fills today.{movers_en}{drivers_en}",
                     money(*nav),
                     pct(*total_return)
                 ),
@@ -676,30 +682,34 @@ pub fn render(event: &Event, display: &DisplaySettings) -> Rendered {
             max_drawdown,
             trades,
             nav,
-        } => Rendered {
-            kind: "weekly_report",
-            category: "report",
-            severity: Severity::Info,
-            title_zh: format!("周报（截至 {week_end}）：本周 {}", pct(*week_return)),
-            title_en: format!(
-                "Weekly report (to {week_end}): {} this week",
-                pct(*week_return)
-            ),
-            body_zh: format!(
-                "净值 {}，累计 {}，最大回撤 {}，本周成交 {trades} 笔。",
-                money(*nav),
-                pct(*total_return),
-                pct(*max_drawdown)
-            ),
-            body_en: format!(
-                "NAV {}, total {}, max drawdown {}, {trades} fills this week.",
-                money(*nav),
-                pct(*total_return),
-                pct(*max_drawdown)
-            ),
-            params: json!({"week_end": week_end}),
-            link: Some("/performance".into()),
-        },
+            drivers,
+        } => {
+            let (drivers_zh, drivers_en) = period_lines(drivers);
+            Rendered {
+                kind: "weekly_report",
+                category: "report",
+                severity: Severity::Info,
+                title_zh: format!("周报（截至 {week_end}）：本周 {}", pct(*week_return)),
+                title_en: format!(
+                    "Weekly report (to {week_end}): {} this week",
+                    pct(*week_return)
+                ),
+                body_zh: format!(
+                    "净值 {}，累计 {}，最大回撤 {}，本周成交 {trades} 笔。{drivers_zh}",
+                    money(*nav),
+                    pct(*total_return),
+                    pct(*max_drawdown)
+                ),
+                body_en: format!(
+                    "NAV {}, total {}, max drawdown {}, {trades} fills this week.{drivers_en}",
+                    money(*nav),
+                    pct(*total_return),
+                    pct(*max_drawdown)
+                ),
+                params: json!({"week_end": week_end}),
+                link: Some("/performance".into()),
+            }
+        }
         Event::PreOpen {
             trade_date,
             open_at,
@@ -868,6 +878,14 @@ fn capitalize(text: &str) -> String {
 fn why_lines(why: &Option<(String, String)>) -> (String, String) {
     match why {
         Some((zh, en)) => (format!("\n原因：{zh}"), format!("\nWhy: {en}")),
+        None => (String::new(), String::new()),
+    }
+}
+
+/// A period's plan drivers as a paragraph to append, in (Chinese, English).
+fn period_lines(drivers: &Option<(String, String)>) -> (String, String) {
+    match drivers {
+        Some((zh, en)) => (format!("\n计划：{zh}"), format!("\nPlans: {en}")),
         None => (String::new(), String::new()),
     }
 }
@@ -1279,6 +1297,10 @@ mod tests {
                 trades: 4,
                 best: Some(("A".into(), 0.05)),
                 worst: Some(("B".into(), -0.03)),
+                drivers: Some((
+                    "1 份计划中 1 份有交易。".into(),
+                    "1 of 1 plans traded.".into(),
+                )),
             },
             Event::WeeklyReport {
                 week_end: date,
@@ -1287,6 +1309,7 @@ mod tests {
                 max_drawdown: -0.05,
                 trades: 9,
                 nav: 1.0,
+                drivers: None,
             },
             Event::PreOpen {
                 trade_date: date,

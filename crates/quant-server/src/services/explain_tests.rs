@@ -109,6 +109,18 @@ async fn plans_store_an_explanation_that_matches_one_computed_on_read() {
     );
     assert!(headlines[&first.plan_id].drivers.len() <= explain::HEADLINE_DRIVERS);
 
+    // Reports summarise a period's drivers.
+    let (zh, en) = explain::period_drivers(&client, &[plan.clone(), plan2.clone()])
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(en.starts_with("2 of 2 plans traded, breadth "), "{en}");
+    assert!(
+        en.contains("first plan (1)") && en.contains("carry-over (1)"),
+        "{en}"
+    );
+    assert!(zh.starts_with("2 份计划中 2 份有交易"), "{zh}");
+
     // The overview's exposure panel follows the latest plan.
     let view = explain::exposure_view(&client, plan2.account_id, &[("NVDA".into(), 0.02)], 0.5)
         .await

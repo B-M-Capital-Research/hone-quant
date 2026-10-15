@@ -32,7 +32,7 @@ use tokio::sync::Mutex;
 use crate::db::lock_key;
 use crate::notify::{self, Event};
 use crate::services::reminders::{self, Schedule};
-use crate::services::{broker, marketdata, planner, portfolio};
+use crate::services::{broker, explain, marketdata, planner, portfolio};
 use crate::state::AppState;
 use crate::store::portfolios::{self, Book};
 use crate::store::settings::{self, AutomationMode, ExecutionSettings, RiskSettings};
@@ -613,6 +613,11 @@ async fn daily_summary(state: &Arc<AppState>, book: &Book, date: NaiveDate) -> R
         .filter_map(|p| p.day_change_pct.map(|c| (p.symbol.clone(), c)))
         .collect();
     movers.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let drivers = {
+        let client = state.pool.get().await?;
+        let plans = trading::plans_for_date(&client, book.account.id, date).await?;
+        explain::period_drivers(&client, &plans).await?
+    };
     notify::notify_in(
         state,
         &book.portfolio.tag(),
@@ -625,6 +630,7 @@ async fn daily_summary(state: &Arc<AppState>, book: &Book, date: NaiveDate) -> R
             trades: fills.len(),
             best: movers.first().cloned(),
             worst: movers.last().cloned(),
+            drivers,
         },
     )
     .await?;
@@ -662,6 +668,19 @@ async fn weekly_report(state: &Arc<AppState>, book: &Book, date: NaiveDate) -> R
         },
     )
     .await?;
+    let (week_plans, _) = trading::list_plans(
+        &client,
+        book.account.id,
+        &trading::PlanFilter {
+            from: Some(week_start + Duration::days(1)),
+            to: Some(date),
+            status: None,
+            limit: 100,
+            offset: 0,
+        },
+    )
+    .await?;
+    let drivers = explain::period_drivers(&client, &week_plans).await?;
     drop(client);
     notify::notify_in(
         state,
@@ -673,6 +692,7 @@ async fn weekly_report(state: &Arc<AppState>, book: &Book, date: NaiveDate) -> R
             max_drawdown: perf.metrics.max_drawdown,
             trades: trades as usize,
             nav: last,
+            drivers,
         },
     )
     .await?;

@@ -708,6 +708,217 @@ pub fn one_line(
     }
 }
 
+/// A plan-level driver's name for period summaries.
+fn driver_label(code: &str, lang: Lang) -> &'static str {
+    let zh = lang == Lang::Zh;
+    match code {
+        "first_plan" => {
+            if zh {
+                "首个计划"
+            } else {
+                "first plan"
+            }
+        }
+        "strategy_changed" => {
+            if zh {
+                "策略切换"
+            } else {
+                "strategy change"
+            }
+        }
+        "history_limited" => {
+            if zh {
+                "历史不足"
+            } else {
+                "short histories"
+            }
+        }
+        "no_action" => {
+            if zh {
+                "无需交易"
+            } else {
+                "nothing to trade"
+            }
+        }
+        "newly_eligible" => {
+            if zh {
+                "新纳入"
+            } else {
+                "newly eligible names"
+            }
+        }
+        "breadth" => {
+            if zh {
+                "市场宽度"
+            } else {
+                "breadth"
+            }
+        }
+        "trend_breaks" => {
+            if zh {
+                "趋势转弱"
+            } else {
+                "trend breaks"
+            }
+        }
+        "trend_recoveries" => {
+            if zh {
+                "趋势回升"
+            } else {
+                "trend recoveries"
+            }
+        }
+        "sector_budget" => {
+            if zh {
+                "板块预算"
+            } else {
+                "sector budgets"
+            }
+        }
+        "price_drift" => {
+            if zh {
+                "价格漂移"
+            } else {
+                "price drift"
+            }
+        }
+        "carry_over" => {
+            if zh {
+                "延续上次"
+            } else {
+                "carry-over"
+            }
+        }
+        "retry" => {
+            if zh {
+                "重试"
+            } else {
+                "retries"
+            }
+        }
+        "turnover_cap" => {
+            if zh {
+                "换手上限"
+            } else {
+                "the turnover cap"
+            }
+        }
+        "cash_cap" => {
+            if zh {
+                "现金约束"
+            } else {
+                "the cash cap"
+            }
+        }
+        "band_waiver" => {
+            if zh {
+                "容忍带豁免"
+            } else {
+                "band waivers"
+            }
+        }
+        "frozen" => {
+            if zh {
+                "冻结"
+            } else {
+                "frozen names"
+            }
+        }
+        "excluded" => {
+            if zh {
+                "排除"
+            } else {
+                "exclusions"
+            }
+        }
+        _ => {
+            if zh {
+                "其他信号"
+            } else {
+                "other signals"
+            }
+        }
+    }
+}
+
+/// What drove a period's plans, one line each in (Chinese, English): how many plans traded,
+/// breadth at the first and last plan, and the drivers that led most headlines. `None` when
+/// the period has no plan with engine output.
+pub async fn period_drivers(
+    client: &impl GenericClient,
+    plans: &[Plan],
+) -> Result<Option<(String, String)>> {
+    let mut plans: Vec<&Plan> = plans
+        .iter()
+        .filter(|p| p.status != "skipped" && p.breadth.is_some())
+        .collect();
+    if plans.is_empty() {
+        return Ok(None);
+    }
+    plans.sort_by_key(|p| (p.generated_at, p.id));
+    let owned: Vec<Plan> = plans.iter().map(|p| (*p).clone()).collect();
+    let headlines = headlines(client, &owned).await?;
+    // Count each plan's leading driver (the first that is not context), for plans that traded.
+    let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut traded = 0;
+    for plan in &plans {
+        if plan.order_count == 0 {
+            continue;
+        }
+        traded += 1;
+        if let Some(lead) = headlines.get(&plan.id).and_then(|h| {
+            h.drivers.iter().find(|d| {
+                !matches!(
+                    d,
+                    PlanDriver::StrategyChanged { .. } | PlanDriver::HistoryLimited { .. }
+                )
+            })
+        }) {
+            *counts.entry(lead.code()).or_default() += 1;
+        }
+    }
+    let mut ranked: Vec<(&str, usize)> = counts.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    let first = plans[0].breadth.unwrap_or(0.0);
+    let last = plans[plans.len() - 1].breadth.unwrap_or(0.0);
+    let render = |lang: Lang| -> String {
+        let zh = lang == Lang::Zh;
+        let leads: Vec<String> = ranked
+            .iter()
+            .take(2)
+            .map(|(code, n)| {
+                if zh {
+                    format!("{} {n} 次", driver_label(code, lang))
+                } else {
+                    format!("{} ({n})", driver_label(code, lang))
+                }
+            })
+            .collect();
+        let base = if zh {
+            format!(
+                "{} 份计划中 {traded} 份有交易，市场宽度 {}→{}",
+                plans.len(),
+                p1(first),
+                p1(last)
+            )
+        } else {
+            format!(
+                "{traded} of {} plans traded, breadth {}→{}",
+                plans.len(),
+                p1(first),
+                p1(last)
+            )
+        };
+        match (leads.is_empty(), zh) {
+            (true, true) => format!("{base}。"),
+            (true, false) => format!("{base}."),
+            (false, true) => format!("{base}；主要驱动：{}。", leads.join("、")),
+            (false, false) => format!("{base}; main drivers: {}.", leads.join(", ")),
+        }
+    };
+    Ok(Some((render(Lang::Zh), render(Lang::En))))
+}
+
 /// Sector display names by id, in both languages.
 pub type SectorNames = BTreeMap<String, (String, String)>;
 
