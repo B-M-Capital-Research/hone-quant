@@ -195,6 +195,17 @@ pub async fn dashboard(
     )
     .await?;
     let unread = system::unread_count(&client, scope.as_deref()).await?;
+    let live_weights: Vec<(String, f64)> = valuation
+        .positions
+        .iter()
+        .map(|p| (p.symbol.clone(), p.weight))
+        .collect();
+    let invested_now = if valuation.nav > 0.0 {
+        valuation.invested / valuation.nav
+    } else {
+        0.0
+    };
+    let exposure = explain::exposure_view(&client, account_id, &live_weights, invested_now).await?;
     let quotes = market::quotes(&client).await?;
     let restrictions =
         strategy_store::active_restrictions(&client, market.schedule_date, ctx.portfolio().id)
@@ -208,6 +219,7 @@ pub async fn dashboard(
         "targets": targets.map(|(plan_id, at, weights)| json!({"plan_id": plan_id, "generated_at": at, "weights": weights})),
         "plans": plans,
         "recent_plans": recent,
+        "exposure": exposure,
         "restrictions": restrictions,
         "unread_notifications": unread,
         "data": {"source": state.market.source(), "last_quote_at": last_quote},

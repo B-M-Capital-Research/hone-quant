@@ -121,6 +121,10 @@ pub struct AssetRecord {
     pub weight: f64,
     #[serde(default)]
     pub above_breadth_line: Option<bool>,
+    #[serde(default)]
+    pub breadth_gap: Option<f64>,
+    #[serde(default)]
+    pub capped: bool,
 }
 
 fn one() -> f64 {

@@ -14,6 +14,7 @@ use quant_core::explain::{
     PlanExplanation, PlanHeader, PlanSnapshot,
 };
 use quant_core::rebalance::BandWaiver;
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::store::settings::Lang;
@@ -137,6 +138,225 @@ fn trim(mut headline: Headline) -> Headline {
 /// The driver codes of a headline, for audit entries.
 pub fn driver_codes(drivers: &[PlanDriver]) -> Vec<&'static str> {
     drivers.iter().map(PlanDriver::code).collect()
+}
+
+// ---------------------------------------------------------------------------------------------
+// Exposure panel (Overview): where breadth and exposure stand, what changed since the previous
+// plan, and what would trigger the next trades.
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExposurePoint {
+    pub plan_id: i64,
+    pub trade_date: chrono::NaiveDate,
+    pub slot: String,
+    pub breadth: Option<f64>,
+    pub exposure_target: Option<f64>,
+    pub invested_target: Option<f64>,
+}
+
+/// How much of its drift band a holding has used against the latest plan's target: it trades
+/// at the next plan when |drift| exceeds `band` (or when the cash gap waives bands).
+#[derive(Debug, Clone, Serialize)]
+pub struct BandDistance {
+    pub symbol: String,
+    pub weight: f64,
+    pub target: f64,
+    /// `target − weight`.
+    pub drift: f64,
+    pub band: f64,
+}
+
+/// Why a name has its target weight: sector budget × share within the sector, and the signals
+/// behind the share.
+#[derive(Debug, Clone, Serialize)]
+pub struct WeightWhy {
+    pub sector: String,
+    pub sector_weight: f64,
+    pub share: f64,
+    pub vol: Option<f64>,
+    pub momentum_multiplier: f64,
+    pub trend_multiplier: f64,
+    pub breadth_gap: Option<f64>,
+    pub capped: bool,
+    pub target: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExposureView {
+    pub plan_id: i64,
+    pub trade_date: chrono::NaiveDate,
+    pub slot: String,
+    pub generated_at: chrono::DateTime<chrono::Utc>,
+    pub previous_plan_id: Option<i64>,
+    pub breadth_scaling: bool,
+    /// Breadth moving-average length and the exposure range it maps onto.
+    pub line: usize,
+    pub min_exposure: f64,
+    pub max_exposure: f64,
+    pub min_history_days: usize,
+    pub breadth: Option<f64>,
+    pub above: Option<usize>,
+    pub counted: Option<usize>,
+    pub exposure_target: Option<f64>,
+    pub invested_target: Option<f64>,
+    pub crossed_below: Vec<String>,
+    pub crossed_above: Vec<String>,
+    /// Invested weight now (live valuation) and its gap to the plan's target.
+    pub invested_now: f64,
+    pub cash_gap: Option<f64>,
+    pub cash_band: f64,
+    pub triggers: Option<quant_core::explain::BreadthTriggers>,
+    pub history: Vec<ExposurePoint>,
+    pub bands: Vec<BandDistance>,
+    pub weights: BTreeMap<String, WeightWhy>,
+}
+
+/// The exposure panel for an account, from its latest plan with engine output and the live
+/// weights (`(symbol, weight)` and the invested share of NAV).
+pub async fn exposure_view(
+    client: &impl GenericClient,
+    account_id: i64,
+    live_weights: &[(String, f64)],
+    invested_now: f64,
+) -> Result<Option<ExposureView>> {
+    let Some(latest) = trading::previous_explainable_plan(client, account_id, None).await? else {
+        return Ok(None);
+    };
+    let diagnostics = trading::plan_diagnostics(client, latest.id).await?;
+    let Some(snapshot) = snapshot(client, &latest, &diagnostics).await? else {
+        return Ok(None);
+    };
+    let x = explanation(client, &latest, &diagnostics).await?;
+    let params = &snapshot.params;
+
+    let (history, _) = trading::list_plans(
+        client,
+        account_id,
+        &trading::PlanFilter {
+            from: None,
+            to: None,
+            status: None,
+            limit: 120,
+            offset: 0,
+        },
+    )
+    .await?;
+    let mut history: Vec<ExposurePoint> = history
+        .into_iter()
+        .filter(|p| p.status != "skipped" && p.exposure_target.is_some())
+        .map(|p| ExposurePoint {
+            plan_id: p.id,
+            trade_date: p.trade_date,
+            slot: p.slot,
+            breadth: p.breadth,
+            exposure_target: p.exposure_target,
+            invested_target: p.invested_target,
+        })
+        .collect();
+    history.reverse();
+
+    let rp = &params.rebalance;
+    let mut bands: Vec<BandDistance> = live_weights
+        .iter()
+        .filter(|(_, w)| *w > 0.0)
+        .map(|(symbol, weight)| {
+            let target = snapshot
+                .assets
+                .iter()
+                .find(|a| &a.symbol == symbol)
+                .map(|a| a.weight.max(0.0))
+                .unwrap_or(0.0);
+            BandDistance {
+                symbol: symbol.clone(),
+                weight: *weight,
+                target,
+                drift: target - weight,
+                band: rp.band_abs.max(rp.band_rel * target),
+            }
+        })
+        .collect();
+    bands.sort_by(|a, b| {
+        let used = |d: &BandDistance| {
+            if d.band > 0.0 {
+                d.drift.abs() / d.band
+            } else {
+                f64::INFINITY
+            }
+        };
+        used(b).total_cmp(&used(a)).then(a.symbol.cmp(&b.symbol))
+    });
+
+    let sector_weight = |sector: &str| -> f64 {
+        snapshot
+            .assets
+            .iter()
+            .filter(|a| a.sector == sector)
+            .map(|a| a.weight.max(0.0))
+            .sum()
+    };
+    let weights = snapshot
+        .assets
+        .iter()
+        .filter(|a| a.weight > 0.0)
+        .map(|a| {
+            let total = sector_weight(&a.sector);
+            (
+                a.symbol.clone(),
+                WeightWhy {
+                    sector: a.sector.clone(),
+                    sector_weight: total,
+                    share: if total > 0.0 { a.weight / total } else { 0.0 },
+                    vol: a.vol,
+                    momentum_multiplier: a.momentum_multiplier,
+                    trend_multiplier: a.trend_multiplier,
+                    breadth_gap: a.breadth_gap,
+                    capped: a.capped,
+                    target: a.weight,
+                },
+            )
+        })
+        .collect();
+
+    let counted = x.as_ref().and_then(|x| x.breadth.counted_now);
+    let triggers = match (latest.exposure_target, latest.invested_target) {
+        (Some(e), Some(i)) => {
+            quant_core::explain::breadth_triggers(params, invested_now, e, i, counted)
+        }
+        _ => None,
+    };
+    Ok(Some(ExposureView {
+        plan_id: latest.id,
+        trade_date: latest.trade_date,
+        slot: latest.slot.clone(),
+        generated_at: latest.generated_at,
+        previous_plan_id: x.as_ref().and_then(|x| x.previous_plan_id),
+        breadth_scaling: params.exposure.breadth_scaling,
+        line: params.exposure.breadth_sma,
+        min_exposure: params.exposure.min_exposure,
+        max_exposure: params.exposure.max_exposure,
+        min_history_days: params.universe.min_history_days,
+        breadth: latest.breadth,
+        above: x.as_ref().and_then(|x| x.breadth.above_now),
+        counted,
+        exposure_target: latest.exposure_target,
+        invested_target: latest.invested_target,
+        crossed_below: x
+            .as_ref()
+            .map(|x| x.breadth.crossed_below.clone())
+            .unwrap_or_default(),
+        crossed_above: x
+            .as_ref()
+            .map(|x| x.breadth.crossed_above.clone())
+            .unwrap_or_default(),
+        invested_now,
+        cash_gap: latest.invested_target.map(|t| t - invested_now),
+        cash_band: quant_core::rebalance::CASH_BAND,
+        triggers,
+        history,
+        bands,
+        weights,
+    }))
 }
 
 // ---------------------------------------------------------------------------------------------

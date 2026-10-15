@@ -108,6 +108,21 @@ async fn plans_store_an_explanation_that_matches_one_computed_on_read() {
         Some(first.plan_id)
     );
     assert!(headlines[&first.plan_id].drivers.len() <= explain::HEADLINE_DRIVERS);
+
+    // The overview's exposure panel follows the latest plan.
+    let view = explain::exposure_view(&client, plan2.account_id, &[("NVDA".into(), 0.02)], 0.5)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(view.plan_id, second.plan_id);
+    assert_eq!(view.history.len(), 2);
+    assert_eq!(view.line, 200);
+    let counted = view.counted.unwrap();
+    assert!((view.breadth.unwrap() - view.above.unwrap() as f64 / counted as f64).abs() < 1e-12);
+    assert_eq!(view.bands.len(), 1);
+    assert!(!view.weights.is_empty());
+    // Half invested against a ~90% target: the gap is far past the tolerance.
+    assert!(view.cash_gap.unwrap() > view.cash_band);
 }
 
 /// Equal up to float noise: JSONB keeps decimals, and parsing them back can move the last bit.

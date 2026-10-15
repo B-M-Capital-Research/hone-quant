@@ -327,9 +327,45 @@ export interface Dashboard {
   targets: { plan_id: number; generated_at: Iso; weights: Record<string, number> } | null;
   plans: PlanWithOrders[];
   recent_plans: Plan[];
+  /** Breadth, exposure and next triggers from the latest plan; null before the first plan. */
+  exposure: ExposureView | null;
   restrictions: Restriction[];
   unread_notifications: number;
   data: { source: DataSource; last_quote_at: Iso | null };
+}
+
+export interface ExposureView {
+  plan_id: number;
+  trade_date: DateStr;
+  slot: Slot;
+  generated_at: Iso;
+  previous_plan_id: number | null;
+  breadth_scaling: boolean;
+  line: number;
+  min_exposure: number;
+  max_exposure: number;
+  min_history_days: number;
+  breadth: number | null;
+  above: number | null;
+  counted: number | null;
+  exposure_target: number | null;
+  invested_target: number | null;
+  crossed_below: string[];
+  crossed_above: string[];
+  invested_now: number;
+  cash_gap: number | null;
+  cash_band: number;
+  triggers: {
+    invested: number;
+    trim_below: number | null;
+    top_up_above: number | null;
+    counted: number | null;
+    trim_below_count: number | null;
+    top_up_above_count: number | null;
+  } | null;
+  history: { plan_id: number; trade_date: DateStr; slot: Slot; breadth: number | null; exposure_target: number | null; invested_target: number | null }[];
+  bands: { symbol: string; weight: number; target: number; drift: number; band: number }[];
+  weights: Record<string, { sector: string; sector_weight: number; share: number; vol: number | null; momentum_multiplier: number; trend_multiplier: number; breadth_gap: number | null; capped: boolean; target: number }>;
 }
 
 export interface Sector {
