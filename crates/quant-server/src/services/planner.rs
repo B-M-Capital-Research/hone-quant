@@ -123,6 +123,12 @@ impl Proposal {
                 "cash_after": self.plan.cash_after,
                 "turnover_scale": self.plan.turnover_scale,
                 "cash_scale": self.plan.cash_scale,
+                "invested_now": self.plan.invested_now,
+                "invested_target": self.plan.invested_target,
+                "cash_gap": self.plan.cash_gap,
+                "cash_band": quant_core::rebalance::CASH_BAND,
+                "band_waiver": self.plan.band_waiver,
+                "band_waived": self.plan.orders.iter().filter(|o| o.band_waived).map(|o| &self.symbols[o.asset]).collect::<Vec<_>>(),
             },
             "history": {"from": self.history_from, "to": self.history_to},
         })

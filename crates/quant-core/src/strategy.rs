@@ -608,6 +608,12 @@ pub struct AssetDiagnostics {
     pub momentum_rank: Option<f64>,
     /// price / SMA(trend) − 1.
     pub trend: Option<f64>,
+    /// price / SMA(breadth) − 1: this name's distance to the line breadth counts it against.
+    /// `None` when breadth scaling is off or the name is not counted (not active, or fewer than
+    /// `breadth_sma` points including the decision price).
+    pub breadth_gap: Option<f64>,
+    /// Whether the name counts as above its breadth line (`price > SMA(breadth)`).
+    pub above_breadth_line: Option<bool>,
     pub momentum_multiplier: f64,
     pub trend_multiplier: f64,
     pub score: f64,
@@ -735,6 +741,8 @@ pub fn compute_targets(params: &StrategyParams, input: &EngineInput) -> TargetRe
     let mut vol = vec![None; n];
     let mut momentum = vec![None; n];
     let mut trend = vec![None; n];
+    let mut breadth_gap = vec![None; n];
+    let mut above_line = vec![None; n];
     let mut above_breadth_line = Vec::new();
     for i in 0..n {
         if status[i] != AssetStatus::Active {
@@ -751,6 +759,8 @@ pub fn compute_targets(params: &StrategyParams, input: &EngineInput) -> TargetRe
             && let Some(ma) = stats::sma(s, ep.breadth_sma)
         {
             above_breadth_line.push(if price > ma { 1.0 } else { 0.0 });
+            breadth_gap[i] = Some(price / ma - 1.0);
+            above_line[i] = Some(price > ma);
         }
     }
 
@@ -967,6 +977,8 @@ pub fn compute_targets(params: &StrategyParams, input: &EngineInput) -> TargetRe
             momentum: momentum[i],
             momentum_rank: momentum_ranks[i],
             trend: trend[i],
+            breadth_gap: breadth_gap[i],
+            above_breadth_line: above_line[i],
             momentum_multiplier: momentum_multiplier[i],
             trend_multiplier: trend_multiplier[i],
             score: score[i],
@@ -1308,6 +1320,28 @@ mod tests {
         let result = fixture.run(&params);
         assert_eq!(result.breadth, Some(0.0));
         assert!((result.exposure_target - params.exposure.min_exposure).abs() < 1e-12);
+    }
+
+    #[test]
+    fn breadth_is_the_share_of_names_recorded_above_the_line() {
+        let fixture = universe();
+        let result = fixture.run(&fixture_params());
+        let counted: Vec<bool> = result
+            .assets
+            .iter()
+            .filter_map(|a| a.above_breadth_line)
+            .collect();
+        assert_eq!(counted.len(), 8);
+        let above = counted.iter().filter(|&&x| x).count() as f64;
+        assert!((result.breadth.unwrap() - above / 8.0).abs() < 1e-12);
+        for a in &result.assets {
+            assert_eq!(a.above_breadth_line, a.breadth_gap.map(|g| g > 0.0));
+        }
+        // Without breadth scaling nothing is recorded.
+        let mut params = fixture_params();
+        params.exposure.breadth_scaling = false;
+        let result = fixture.run(&params);
+        assert!(result.assets.iter().all(|a| a.above_breadth_line.is_none()));
     }
 
     #[test]
