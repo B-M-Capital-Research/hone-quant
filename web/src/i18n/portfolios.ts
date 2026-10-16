@@ -2,7 +2,7 @@ import { defineMessages } from "@/i18n";
 
 const zh = {
   title: "组合",
-  lead: "每个组合是一套独立的模拟账户：有自己的持仓、交易计划、成交和净值，以及各自启用的策略版本和自动交易模式。投资范围、策略库、行情数据和计划时间由所有组合共享。",
+  lead: "每个组合是一套独立的账户：有自己的持仓、交易计划、成交和净值，以及各自启用的策略版本和自动交易模式。组合可以由 hone-quant 模拟撮合，也可以连接长桥（Longbridge）模拟交易账户，把订单发送到券商。投资范围、策略库、行情数据和计划时间由所有组合共享。",
   actions: {
     new: "新建组合",
     new_menu: "新建组合…",
@@ -87,6 +87,14 @@ const zh = {
     err_name_long: "名称最多 60 个字符",
     err_name_taken: "已有同名的组合，请换一个名称",
     err_cash: "请输入 1,000 – 10,000,000,000 之间的金额（最多两位小数）",
+    venue: "交易执行",
+    venue_admin_only: "连接券商账户需要管理员权限。",
+    broker_checking: "正在检查长桥连接…",
+    broker_ready: "已连接长桥模拟账户（{account}）",
+    broker_cash_hint: "初始资金取自该账户的美元现金，加上其中投资范围内美股持仓的市值（按券商成本价接管）；其他市场或范围外的持仓只显示，不会交易。一个长桥账户只能连接一个组合。",
+    broker_not_ready: "长桥连接暂不可用",
+    broker_setup: "请在服务器上运行 hone-quant longbridge auth login 登录长桥模拟账户，详见部署文档。",
+    broker_subtitle: "新组合接管长桥模拟账户的美元现金和范围内持仓，在下一个计划时段按所选策略版本调仓，订单发送到长桥。",
   },
   edit: {
     title: "编辑组合",
@@ -115,7 +123,7 @@ const zh = {
 
 const en: typeof zh = {
   title: "Portfolios",
-  lead: "Each portfolio is an isolated paper book with its own holdings, trading plans, fills and NAV, and its own active strategy version and automation mode. The universe, strategy library, market data and plan schedule are shared by all portfolios.",
+  lead: "Each portfolio is an isolated book with its own holdings, trading plans, fills and NAV, and its own active strategy version and automation mode. A portfolio trades on hone-quant's simulator or, linked to a Longbridge paper-trading account, sends its orders to the broker. The universe, strategy library, market data and plan schedule are shared by all portfolios.",
   actions: {
     new: "New portfolio",
     new_menu: "New portfolio…",
@@ -200,6 +208,14 @@ const en: typeof zh = {
     err_name_long: "At most 60 characters",
     err_name_taken: "A portfolio with this name already exists",
     err_cash: "Enter an amount between 1,000 and 10,000,000,000 (at most two decimals)",
+    venue: "Execution",
+    venue_admin_only: "Linking a broker account requires the admin role.",
+    broker_checking: "Checking the Longbridge connection…",
+    broker_ready: "Connected to a Longbridge paper account ({account})",
+    broker_cash_hint: "The starting capital is the account's US-dollar cash plus its US holdings of universe companies (adopted at the broker's average cost); holdings in other markets or outside the universe are shown but never traded. A Longbridge account can be linked to one portfolio only.",
+    broker_not_ready: "The Longbridge connection is not available",
+    broker_setup: "Sign the server in to the Longbridge paper account with hone-quant longbridge auth login (see the deployment guide).",
+    broker_subtitle: "The new portfolio takes over the Longbridge paper account's US-dollar cash and universe holdings, rebalances at the next plan slot with the strategy version you choose, and sends its orders to Longbridge.",
   },
   edit: {
     title: "Edit portfolio",

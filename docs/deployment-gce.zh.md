@@ -2,12 +2,13 @@
 
 本手册说明如何把 hone-quant 部署到 Google Compute Engine（GCE）的 Linux 虚拟机上，与 honeclaw 同机运行并共用其 PostgreSQL 实例。English: [deployment-gce.md](deployment-gce.md)。部署在 hone-claw.com/quant 的生产实例（仅限 honeclaw 管理员，前置 Cloudflare Worker）另有手册：[deploy-hone-claw-quant.md](deploy-hone-claw-quant.md)（英文）。
 
-hone-quant 是一个可执行文件（网页界面已内嵌），由 systemd 管理，只监听 `127.0.0.1:8090`；通过 IAP/SSH 隧道（推荐）或 HTTPS 反向代理访问。**它只会在模拟盘中交易**——代码中没有任何券商接口，也没有任何设置可以开启实盘。
+hone-quant 是一个可执行文件（网页界面已内嵌），由 systemd 管理，只监听 `127.0.0.1:8090`；通过 IAP/SSH 隧道（推荐）或 HTTPS 反向代理访问。**它只会在模拟盘中交易**：hone-quant 自己的模拟撮合，或连接到组合的长桥模拟交易账户（[longbridge.zh.md](longbridge.zh.md)）。没有任何设置可以开启实盘。
 
 ```
  你的电脑 ──IAP 隧道──▶ 虚拟机：hone-quant（127.0.0.1:8090，systemd）
                               ├─▶ PostgreSQL（与 honeclaw 共用实例；schema 为 hone_quant）
                               ├─▶ financialmodelingprep.com（行情，HTTPS）
+                              ├─▶ longbridge 客户端 ─▶ 长桥 OpenAPI（可选，模拟账户）
                               └─▶ Telegram / 飞书 / 企业微信 / Slack / Discord / 邮件（通知）
 ```
 
@@ -104,6 +105,7 @@ gcloud compute ssh <vm> --zone <zone> --tunnel-through-iap -- -N -L 8090:127.0.0
 | 重置密码 | `sudo …/hq.sh user passwd alice`（会让该用户的现有会话失效） |
 | 立即同步行情 | `sudo …/hq.sh sync`（加 `--full` 重新下载全部历史） |
 | 更新投资范围 | 投资范围页 →「检查更新」，或 `sudo …/hq.sh universe sync --apply` |
+| 登录长桥 | 首次运行 `sudo …/hq.sh longbridge auth login`（设备授权），之后用 `sudo …/hq.sh longbridge` 检查；见 [longbridge.zh.md](longbridge.zh.md#配置步骤) |
 | 升级 | `sudo scripts/deploy.sh <新发布包>`（自动迁移、切换、健康检查，失败自动回滚） |
 | 手动回滚 | `sudo ln -sfn /opt/hone-quant/releases/<上一版本> /opt/hone-quant/current && sudo systemctl restart hone-quant` |
 

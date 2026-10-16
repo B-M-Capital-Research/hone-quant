@@ -1,0 +1,59 @@
+{
+  "order_id": "1069345312341434368",
+  "status": "FilledStatus",
+  "stock_name": "NVIDIA",
+  "quantity": "20",
+  "executed_quantity": "20",
+  "price": "121.37",
+  "executed_price": "120.172",
+  "submitted_at": "2026-10-16T14:00:03Z",
+  "side": "Buy",
+  "symbol": "NVDA.US",
+  "order_type": "LO",
+  "last_done": "120.18",
+  "trigger_price": null,
+  "msg": "",
+  "tag": "Normal",
+  "time_in_force": "Day",
+  "expire_date": null,
+  "updated_at": "2026-10-16T14:00:04Z",
+  "trigger_at": null,
+  "trailing_amount": null,
+  "trailing_percent": null,
+  "limit_offset": null,
+  "trigger_status": null,
+  "currency": "USD",
+  "outside_rth": "RTH_ONLY",
+  "limit_depth_level": null,
+  "trigger_count": null,
+  "monitor_price": null,
+  "remark": "hq-41",
+  "free_status": "None",
+  "free_amount": "0",
+  "free_currency": "USD",
+  "deductions_status": "DONE",
+  "deductions_amount": "0",
+  "deductions_currency": "USD",
+  "platform_deducted_status": "NONE",
+  "platform_deducted_amount": "0",
+  "platform_deducted_currency": "USD",
+  "history": [
+    {"price": "120.172", "quantity": "20", "status": "FilledStatus", "msg": "", "time": "2026-10-16T14:00:04Z"},
+    {"price": "121.37", "quantity": "20", "status": "NewStatus", "msg": "", "time": "2026-10-16T14:00:03Z"}
+  ],
+  "charge_detail": {
+    "total_amount": "1.03",
+    "currency": "USD",
+    "items": [
+      {"code": "BROKER_FEES", "name": "Broker Fees", "fees": [
+        {"code": "commission", "name": "Commission", "amount": "0.99", "currency": "USD"}
+      ]},
+      {"code": "THIRD_FEES", "name": "Third Party Fees", "fees": [
+        {"code": "settlement_fee", "name": "Settlement Fee", "amount": "0.03", "currency": "USD"},
+        {"code": "sec_fee", "name": "SEC Fee", "amount": "0.01", "currency": "USD"}
+      ]}
+    ]
+  },
+  "attached_orders": [],
+  "multi_leg": null
+}

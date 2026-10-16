@@ -39,6 +39,14 @@ pub struct Account {
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub archived_at: Option<DateTime<Utc>>,
+    /// `sim` (hone-quant's own paper broker) or an external broker (`longbridge`).
+    pub broker: String,
+    /// The broker account this account mirrors (external brokers only).
+    pub broker_account: Option<String>,
+    /// Last successful synchronisation with the broker.
+    pub synced_at: Option<DateTime<Utc>>,
+    /// Report of the latest synchronisation attempt.
+    pub sync_status: Value,
 }
 
 impl Account {
@@ -55,11 +63,21 @@ impl Account {
             status: row.get("status"),
             created_at: row.get("created_at"),
             archived_at: row.get("archived_at"),
+            broker: row.get("broker"),
+            broker_account: row.get("broker_account"),
+            synced_at: row.get("synced_at"),
+            sync_status: row.get("sync_status"),
         }
+    }
+
+    /// Trades at an external broker rather than on hone-quant's simulator.
+    pub fn is_external(&self) -> bool {
+        self.broker != crate::brokers::SIM
     }
 }
 
-const ACCOUNT_COLUMNS: &str = "id, portfolio_id, name, base_currency, mode, initial_cash, cash, inception_date, status, created_at, archived_at";
+const ACCOUNT_COLUMNS: &str = "id, portfolio_id, name, base_currency, mode, initial_cash, cash, inception_date, status, created_at, archived_at,
+    broker, broker_account, synced_at, sync_status";
 
 /// The portfolio's active paper account.
 pub async fn active_account(
@@ -136,6 +154,108 @@ pub async fn create_account(
         )
         .await?;
     Ok(account)
+}
+
+/// What a broker-linked account starts from: the broker's cash, and the value of the holdings
+/// adopted with it (together the initial capital).
+pub struct NewBrokerAccount<'a> {
+    pub portfolio_id: i64,
+    pub name: &'a str,
+    pub broker: &'a str,
+    pub mode: &'a str,
+    pub broker_account: &'a str,
+    pub initial_cash: Decimal,
+    pub cash: Decimal,
+    pub inception: NaiveDate,
+    pub sync_status: &'a Value,
+}
+
+pub async fn create_broker_account(
+    client: &impl GenericClient,
+    a: &NewBrokerAccount<'_>,
+) -> Result<Account> {
+    let row = client
+        .query_one(
+            &format!(
+                "INSERT INTO accounts (portfolio_id, name, initial_cash, cash, inception_date, broker, mode, broker_account,
+                     synced_at, sync_status)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, app_now(), $9)
+                 RETURNING {ACCOUNT_COLUMNS}"
+            ),
+            &[
+                &a.portfolio_id,
+                &a.name,
+                &a.initial_cash,
+                &a.cash,
+                &a.inception,
+                &a.broker,
+                &a.mode,
+                &a.broker_account,
+                a.sync_status,
+            ],
+        )
+        .await?;
+    let account = Account::from_row(&row);
+    client
+        .execute(
+            "INSERT INTO cash_ledger (account_id, kind, amount, balance_after, ref_type, note)
+             VALUES ($1, 'deposit', $2, $2, 'broker_sync', $3)",
+            &[
+                &account.id,
+                &a.cash,
+                &format!("opening cash at {}", a.broker),
+            ],
+        )
+        .await?;
+    Ok(account)
+}
+
+/// The active account linked to a broker account, if any.
+pub async fn active_broker_account(
+    client: &impl GenericClient,
+    broker: &str,
+    broker_account: &str,
+) -> Result<Option<Account>> {
+    let row = client
+        .query_opt(
+            &format!(
+                "SELECT {ACCOUNT_COLUMNS} FROM accounts
+                 WHERE status = 'active' AND broker = $1 AND broker_account = $2"
+            ),
+            &[&broker, &broker_account],
+        )
+        .await?;
+    Ok(row.as_ref().map(Account::from_row))
+}
+
+/// Active accounts that trade at an external broker.
+pub async fn active_external_accounts(client: &impl GenericClient) -> Result<Vec<Account>> {
+    let rows = client
+        .query(
+            &format!(
+                "SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE status = 'active' AND broker <> 'sim' ORDER BY id"
+            ),
+            &[],
+        )
+        .await?;
+    Ok(rows.iter().map(Account::from_row).collect())
+}
+
+/// Records a synchronisation attempt; `synced` marks it successful.
+pub async fn set_sync_status(
+    client: &impl GenericClient,
+    account_id: i64,
+    synced: bool,
+    status: &Value,
+) -> Result<()> {
+    client
+        .execute(
+            "UPDATE accounts SET sync_status = $2, synced_at = CASE WHEN $3 THEN app_now() ELSE synced_at END
+             WHERE id = $1",
+            &[&account_id, status, &synced],
+        )
+        .await?;
+    Ok(())
 }
 
 pub async fn archive_account(client: &impl GenericClient, id: i64) -> Result<()> {
@@ -653,11 +773,22 @@ pub struct Order {
     pub sequence: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// External brokers only: the broker's order id, status and message, what was sent and the
+    /// quote it was priced from.
+    pub broker_order_id: Option<String>,
+    pub broker_status: Option<String>,
+    pub broker_message: Option<String>,
+    pub broker_qty: Option<Decimal>,
+    pub limit_price: Option<Decimal>,
+    pub quote_price: Option<f64>,
+    pub quote_ts: Option<DateTime<Utc>>,
+    pub submitted_at: Option<DateTime<Utc>>,
 }
 
 const ORDER_COLUMNS: &str =
     "id, plan_id, symbol, side, reason, qty, ref_price, weight_before, weight_target,
-    weight_after, status, status_reason, filled_qty, sequence, created_at, updated_at";
+    weight_after, status, status_reason, filled_qty, sequence, created_at, updated_at,
+    broker_order_id, broker_status, broker_message, broker_qty, limit_price, quote_price, quote_ts, submitted_at";
 
 fn order_from_row(r: &Row) -> Order {
     Order {
@@ -677,6 +808,14 @@ fn order_from_row(r: &Row) -> Order {
         sequence: r.get("sequence"),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
+        broker_order_id: r.get("broker_order_id"),
+        broker_status: r.get("broker_status"),
+        broker_message: r.get("broker_message"),
+        broker_qty: r.get("broker_qty"),
+        limit_price: r.get("limit_price"),
+        quote_price: r.get("quote_price"),
+        quote_ts: r.get("quote_ts"),
+        submitted_at: r.get("submitted_at"),
     }
 }
 
@@ -737,6 +876,94 @@ pub async fn set_order_status(
         )
         .await?;
     Ok(())
+}
+
+/// An order is about to be sent to the broker: what will be sent, and the quote it was priced
+/// from. Committed before the request so an interrupted submission leaves a trace.
+pub async fn mark_submitting(
+    client: &impl GenericClient,
+    id: i64,
+    qty: Decimal,
+    limit_price: Decimal,
+    quote: (f64, Option<DateTime<Utc>>),
+) -> Result<()> {
+    client
+        .execute(
+            "UPDATE orders SET status = 'submitting', broker_qty = $2, limit_price = $3, quote_price = $4,
+               quote_ts = $5, submitted_at = app_now(), updated_at = app_now()
+             WHERE id = $1",
+            &[&id, &qty, &limit_price, &quote.0, &quote.1],
+        )
+        .await?;
+    Ok(())
+}
+
+/// The broker accepted the order.
+pub async fn mark_submitted(
+    client: &impl GenericClient,
+    id: i64,
+    broker_order_id: &str,
+    broker_status: &str,
+) -> Result<()> {
+    client
+        .execute(
+            "UPDATE orders SET status = 'submitted', broker_order_id = $2, broker_status = $3, updated_at = app_now()
+             WHERE id = $1",
+            &[&id, &broker_order_id, &broker_status],
+        )
+        .await?;
+    Ok(())
+}
+
+/// Records the broker's view of an order: its status and message, and (when it ended) hone-quant's
+/// final status.
+pub async fn update_broker_order(
+    client: &impl GenericClient,
+    id: i64,
+    status: &str,
+    status_reason: Option<&str>,
+    broker_status: &str,
+    broker_message: Option<&str>,
+    filled_qty: Decimal,
+) -> Result<()> {
+    client
+        .execute(
+            "UPDATE orders SET status = $2, status_reason = COALESCE($3, status_reason), broker_status = $4,
+               broker_message = COALESCE($5, broker_message), filled_qty = $6, updated_at = app_now()
+             WHERE id = $1",
+            &[&id, &status, &status_reason, &broker_status, &broker_message, &filled_qty],
+        )
+        .await?;
+    Ok(())
+}
+
+/// Orders sent to the broker that have not ended yet, oldest first.
+pub async fn working_orders(client: &impl GenericClient, account_id: i64) -> Result<Vec<Order>> {
+    let rows = client
+        .query(
+            &format!(
+                "SELECT {ORDER_COLUMNS} FROM orders WHERE account_id = $1 AND status IN ('submitting', 'submitted')
+                 ORDER BY id"
+            ),
+            &[&account_id],
+        )
+        .await?;
+    Ok(rows.iter().map(order_from_row).collect())
+}
+
+/// Whether a broker execution is already recorded.
+pub async fn has_broker_fill(
+    client: &impl GenericClient,
+    account_id: i64,
+    trade_id: &str,
+) -> Result<bool> {
+    Ok(client
+        .query_one(
+            "SELECT EXISTS (SELECT 1 FROM fills WHERE account_id = $1 AND broker_trade_id = $2)",
+            &[&account_id, &trade_id],
+        )
+        .await?
+        .get(0))
 }
 
 pub struct OrderFilter {
@@ -824,6 +1051,8 @@ pub struct Fill {
     pub slippage: Decimal,
     pub realized_pnl: Option<Decimal>,
     pub executed_at: DateTime<Utc>,
+    /// External brokers only: the broker's trade id.
+    pub broker_trade_id: Option<String>,
 }
 
 pub struct NewFill {
@@ -840,13 +1069,17 @@ pub struct NewFill {
     pub fees: Decimal,
     pub slippage: Decimal,
     pub realized_pnl: Option<Decimal>,
+    pub broker_trade_id: Option<String>,
+    /// When the broker executed it; `None` = now (the simulator).
+    pub executed_at: Option<DateTime<Utc>>,
 }
 
 pub async fn insert_fill(client: &impl GenericClient, fill: &NewFill) -> Result<i64> {
     let row = client
         .query_one(
-            "INSERT INTO fills (order_id, account_id, symbol, side, qty, price, quote_price, quote_ts, notional, commission, fees, slippage, realized_pnl)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id",
+            "INSERT INTO fills (order_id, account_id, symbol, side, qty, price, quote_price, quote_ts, notional, commission, fees, slippage, realized_pnl,
+                 broker_trade_id, executed_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, COALESCE($15, app_now())) RETURNING id",
             &[
                 &fill.order_id,
                 &fill.account_id,
@@ -861,6 +1094,8 @@ pub async fn insert_fill(client: &impl GenericClient, fill: &NewFill) -> Result<
                 &fill.fees,
                 &fill.slippage,
                 &fill.realized_pnl,
+                &fill.broker_trade_id,
+                &fill.executed_at,
             ],
         )
         .await?;
@@ -890,7 +1125,7 @@ pub async fn list_fills(
         .query(
             &format!(
                 "SELECT f.id, f.order_id, o.plan_id, f.symbol, f.side, f.qty, f.price, f.quote_price, f.quote_ts,
-                        f.notional, f.commission, f.fees, f.slippage, f.realized_pnl, f.executed_at
+                        f.notional, f.commission, f.fees, f.slippage, f.realized_pnl, f.executed_at, f.broker_trade_id
                  FROM fills f JOIN orders o ON o.id = f.order_id
                  WHERE {where_clause} ORDER BY f.executed_at DESC, f.id DESC LIMIT $6 OFFSET $7"
             ),
@@ -922,6 +1157,7 @@ pub async fn list_fills(
                 slippage: r.get(12),
                 realized_pnl: r.get(13),
                 executed_at: r.get(14),
+                broker_trade_id: r.get(15),
             })
             .collect(),
         total,

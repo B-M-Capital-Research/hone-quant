@@ -1,0 +1,17 @@
+{
+  "dry_run": true,
+  "preview": {
+    "action": "submit_order",
+    "symbol": "NVDA.US",
+    "side": "buy",
+    "order_type": "LO",
+    "quantity": "20",
+    "time_in_force": "day",
+    "price": "121.37",
+    "trigger_price": null,
+    "outside_rth": "RTH_ONLY",
+    "remark": "hq-41"
+  },
+  "confirmation_code": "073",
+  "next_step": "DRY RUN — nothing was sent to the exchange. Show this preview to the user and re-send the identical request with \"execute\": \"073\" only after the user has explicitly confirmed this exact order. The code is single-use, only applies to this exact request."
+}

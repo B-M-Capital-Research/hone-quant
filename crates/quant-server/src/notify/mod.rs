@@ -195,6 +195,11 @@ pub enum Event {
     DataSyncFailed {
         error: String,
     },
+    /// A broker-linked portfolio could not be synchronised with its broker.
+    BrokerSyncFailed {
+        broker: String,
+        error: String,
+    },
     CorporateAction {
         symbol: String,
         kind: String,
@@ -594,6 +599,26 @@ pub fn render(event: &Event, display: &DisplaySettings) -> Rendered {
             params: json!({}),
             link: Some("/settings/data".into()),
         },
+        Event::BrokerSyncFailed { broker, error } => {
+            let name = if broker == "longbridge" {
+                "Longbridge"
+            } else {
+                broker.as_str()
+            };
+            Rendered {
+                kind: "broker_sync_failed",
+                category: "execution",
+                severity: Severity::Warning,
+                title_zh: format!("{name} 券商账户同步失败"),
+                title_en: format!("{name} account could not be synchronised"),
+                body_zh: format!("{error}\n在恢复之前，这个组合不会生成或执行新的交易计划。"),
+                body_en: format!(
+                    "{error}\nUntil this is resolved the portfolio does not generate or execute new plans."
+                ),
+                params: json!({"broker": broker}),
+                link: Some("/settings/account".into()),
+            }
+        }
         Event::CorporateAction {
             symbol,
             kind,
@@ -1243,6 +1268,10 @@ mod tests {
             },
             Event::DataStale { minutes: 12 },
             Event::DataSyncFailed { error: "e".into() },
+            Event::BrokerSyncFailed {
+                broker: "longbridge".into(),
+                error: "not signed in".into(),
+            },
             Event::CorporateAction {
                 symbol: "NVDA".into(),
                 kind: "split".into(),

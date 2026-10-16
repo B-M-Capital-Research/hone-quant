@@ -9,6 +9,8 @@ use serde_json::{Value, json};
 use super::context::MaybePortfolio;
 use super::error::{ApiError, ApiResult};
 use crate::auth::{CurrentUser, Role};
+use crate::brokers::{self, AccountMode};
+use crate::services::brokerage::{self, LinkRequest};
 use crate::services::portfolio::{self, OpenPortfolio};
 use crate::state::{AppState, ServerEvent, SharedState};
 use crate::store::portfolios::{self, Book, NewPortfolio, Portfolio};
@@ -127,7 +129,16 @@ pub struct CreateBody {
     name: String,
     #[serde(default)]
     description: String,
-    initial_cash: f64,
+    /// Simulated portfolios only: the starting cash. A broker-linked portfolio starts from the
+    /// broker account's cash and holdings.
+    #[serde(default)]
+    initial_cash: Option<f64>,
+    /// Where the portfolio trades: `sim` (hone-quant's simulator, the default) or `longbridge`.
+    #[serde(default)]
+    broker: Option<String>,
+    /// Broker-linked portfolios: `paper` (the only mode enabled).
+    #[serde(default)]
+    mode: Option<AccountMode>,
     strategy_version_id: Option<i64>,
     automation_mode: Option<AutomationMode>,
     /// Administrators: a local username to create it for, or none for a shared portfolio.
@@ -147,11 +158,33 @@ pub async fn create(
     }
     let name = clean_name(&body.name)?;
     let description = clean_description(&body.description)?;
-    if !(1_000.0..=1e10).contains(&body.initial_cash) {
-        return Err(ApiError::bad(
-            "initial cash must be between 1,000 and 10,000,000,000",
-        ));
-    }
+    let broker = body.broker.as_deref().unwrap_or(brokers::SIM);
+    let initial_cash = match broker {
+        brokers::SIM => {
+            let cash = body.initial_cash.unwrap_or(f64::NAN);
+            if !(1_000.0..=1e10).contains(&cash) {
+                return Err(ApiError::bad(
+                    "initial cash must be between 1,000 and 10,000,000,000",
+                ));
+            }
+            cash
+        }
+        brokers::LONGBRIDGE => {
+            if user.role != Role::Admin {
+                return Err(ApiError::Forbidden(
+                    "only administrators can link a portfolio to a broker account".into(),
+                ));
+            }
+            0.0
+        }
+        other => return Err(ApiError::bad(format!("unknown broker {other}"))),
+    };
+    let mode = body.mode.unwrap_or(AccountMode::Paper);
+    // Read the broker account before anything is written (this calls the broker).
+    let prepared = match broker {
+        brokers::SIM => None,
+        _ => Some(brokerage::prepare_link(&state, broker, mode).await?),
+    };
     let mut client = state.pool.get().await?;
     // Members own what they create; administrators create shared portfolios or ones for a
     // local user.
@@ -192,26 +225,45 @@ pub async fn create(
         ..AutomationSettings::default()
     };
     let tx = client.transaction().await?;
-    let book = portfolio::open(
-        &state,
-        &tx,
-        &OpenPortfolio {
-            portfolio: NewPortfolio {
-                name: &name,
-                description: &description,
-                owner: owner.as_deref(),
-                owner_name: &owner_name,
-                automation: &automation,
-                created_by: &user.username,
-            },
-            initial_cash: dec(body.initial_cash, 2),
-            strategy_version_id: version.id,
-        },
-    )
-    .await?
+    let new_portfolio = NewPortfolio {
+        name: &name,
+        description: &description,
+        owner: owner.as_deref(),
+        owner_name: &owner_name,
+        automation: &automation,
+        created_by: &user.username,
+    };
+    let book = match &prepared {
+        None => {
+            portfolio::open(
+                &state,
+                &tx,
+                &OpenPortfolio {
+                    portfolio: new_portfolio,
+                    initial_cash: dec(initial_cash, 2),
+                    strategy_version_id: version.id,
+                },
+            )
+            .await?
+        }
+        Some(prepared) => {
+            brokerage::open_linked(
+                &state,
+                &tx,
+                &LinkRequest {
+                    portfolio: new_portfolio,
+                    broker,
+                    mode,
+                    strategy_version_id: version.id,
+                },
+                prepared,
+            )
+            .await?
+        }
+    }
     .ok_or_else(|| ApiError::conflict(format!("a portfolio named {name} already exists")))?;
     tx.commit().await?;
-    tracing::info!(portfolio = book.portfolio.id, name = %name, owner = ?owner, actor = %user.username, "portfolio created");
+    tracing::info!(portfolio = book.portfolio.id, name = %name, owner = ?owner, broker, actor = %user.username, "portfolio created");
     state.emit(ServerEvent::Portfolios {
         portfolio_id: book.portfolio.id,
     });

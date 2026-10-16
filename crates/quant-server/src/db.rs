@@ -34,6 +34,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "portfolios",
         sql: include_str!("../migrations/0002_portfolios.sql"),
     },
+    Migration {
+        version: 3,
+        name: "brokers",
+        sql: include_str!("../migrations/0003_brokers.sql"),
+    },
 ];
 
 pub fn create_pool(cfg: &DbConfig) -> Result<Pool> {
@@ -310,7 +315,7 @@ mod upgrade_tests {
         let pool = create_pool(&cfg).unwrap();
         assert_eq!(
             migrate(&pool, &schema, DataSource::Demo).await.unwrap(),
-            vec![2]
+            vec![2, 3]
         );
         let client = pool.get().await.unwrap();
         let row = client
@@ -365,6 +370,33 @@ mod upgrade_tests {
             )
             .await;
         assert!(second.is_err(), "Main already has an active account");
+        // Existing accounts are simulated paper accounts; a live one must be at a broker.
+        let sim: i64 = client
+            .query_one(
+                "SELECT count(*) FROM accounts WHERE broker = 'sim' AND mode = 'paper'",
+                &[],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(sim, 2);
+        assert!(
+            client
+                .execute(
+                    "UPDATE accounts SET mode = 'live' WHERE broker = 'sim'",
+                    &[]
+                )
+                .await
+                .is_err(),
+            "the simulator is paper only"
+        );
+        assert!(
+            client
+                .execute("UPDATE accounts SET broker = 'longbridge'", &[])
+                .await
+                .is_err(),
+            "a broker account says which broker account it mirrors"
+        );
         client
             .batch_execute(
                 "INSERT INTO portfolios (name, owner, created_by) VALUES ('Alice', 'alice', 'alice');

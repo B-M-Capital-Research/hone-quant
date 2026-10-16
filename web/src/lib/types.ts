@@ -20,7 +20,10 @@ export type PlanStatus =
   | "expired"
   | "skipped"
   | "failed";
-export type OrderStatus = "planned" | "skipped" | "filled" | "partially_filled" | "rejected" | "cancelled" | "expired";
+export type OrderStatus = "planned" | "submitting" | "submitted" | "skipped" | "filled" | "partially_filled" | "rejected" | "cancelled" | "expired";
+/** Where a portfolio trades: hone-quant's own simulator, or an account at a broker. */
+export type BrokerName = "sim" | "longbridge";
+export type AccountMode = "paper" | "live";
 export type Side = "buy" | "sell";
 export type OrderReason = "entry" | "exit" | "increase" | "decrease";
 export type AutomationMode = "auto" | "approval" | "paused";
@@ -139,6 +142,16 @@ export interface Order {
   sequence: number;
   created_at: Iso;
   updated_at: Iso;
+  /** Broker-linked portfolios: the broker's order id, its own status and message, what was
+   * sent (quantity, limit price) and the quote it was priced from. Null for the simulator. */
+  broker_order_id: string | null;
+  broker_status: string | null;
+  broker_message: string | null;
+  broker_qty: Dec | null;
+  limit_price: Dec | null;
+  quote_price: number | null;
+  quote_ts: Iso | null;
+  submitted_at: Iso | null;
 }
 
 export interface OrderWithPlan extends Order {
@@ -162,6 +175,26 @@ export interface Fill {
   slippage: Dec;
   realized_pnl: Dec | null;
   executed_at: Iso;
+  /** Broker-linked portfolios: the broker's trade id. */
+  broker_trade_id: string | null;
+}
+
+/** What a synchronisation with the broker found and did. */
+export interface SyncReport {
+  ok: boolean;
+  at: Iso;
+  broker: BrokerName;
+  mode: AccountMode;
+  channel: string | null;
+  cash: { currency: string; total: Dec; available: Dec; frozen: Dec; settling: Dec } | null;
+  /** Differences booked to match the broker: `cash` or a symbol. */
+  adjustments: { item: string; before: Dec; after: Dec }[];
+  /** Holdings in the broker account that hone-quant does not manage. */
+  unmanaged: { broker_symbol: string; name: string; currency: string; qty: Dec }[];
+  /** Orders were working, so the comparison waits until they end. */
+  deferred: boolean;
+  warnings: string[];
+  error: string | null;
 }
 
 export interface Account {
@@ -169,13 +202,31 @@ export interface Account {
   portfolio_id: number;
   name: string;
   base_currency: string;
-  mode: "paper";
+  mode: AccountMode;
   initial_cash: Dec;
   cash: Dec;
   inception_date: DateStr;
   status: "active" | "archived";
   created_at: Iso;
   archived_at: Iso | null;
+  /** `sim`: hone-quant's own paper broker; otherwise the account mirrors one at that broker. */
+  broker: BrokerName;
+  broker_account: string | null;
+  synced_at: Iso | null;
+  /** Latest synchronisation attempt; `{}` for simulated accounts. */
+  sync_status: Partial<SyncReport>;
+}
+
+/** A broker connection as the server sees it right now. */
+export interface BrokerConnection {
+  broker: Exclude<BrokerName, "sim">;
+  mode: AccountMode;
+  /** The client program and its version; null when it could not be started. */
+  client: string | null;
+  signed_in: boolean;
+  identity: { channel: string; mode: AccountMode; account: string } | null;
+  error: string | null;
+  checked_at: Iso;
 }
 
 export interface PortfolioSummary {
@@ -219,7 +270,11 @@ export interface Portfolio {
 export interface NewPortfolio {
   name: string;
   description?: string;
-  initial_cash: number;
+  /** Simulated portfolios; a broker-linked one starts from the broker account's cash and holdings. */
+  initial_cash?: number;
+  /** Where it trades (default `sim`). Linking to a broker is for administrators. */
+  broker?: BrokerName;
+  mode?: AccountMode;
   strategy_version_id?: number | null;
   automation_mode?: AutomationMode;
   /** Admins only: a local username, or null for a shared portfolio. */

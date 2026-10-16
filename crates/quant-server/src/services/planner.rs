@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use quant_core::rebalance::{RebalanceInput, RebalancePlan, rebalance};
 use quant_core::strategy::{AssetMeta, EngineInput, StrategyParams, TargetResult, compute_targets};
@@ -24,7 +24,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::notify::{self, Event};
-use crate::services::marketdata;
+use crate::services::{brokerage, marketdata};
 use crate::state::{AppState, ServerEvent};
 use crate::store::portfolios;
 use crate::store::settings::{self, AutomationMode, ExecutionSettings};
@@ -397,6 +397,12 @@ pub async fn generate(
     let client = state.pool.get().await?;
     let book = portfolios::book(&client, portfolio_id).await?;
     let account = book.account.clone();
+    if account.is_external() {
+        // Size the plan on the broker's current cash and holdings.
+        brokerage::sync_locked(state, account.id, &request.actor)
+            .await
+            .context("synchronising with the broker before planning")?;
+    }
     if request.slot != "manual"
         && let Some(existing) =
             trading::plan_for_slot(&client, account.id, request.trade_date, &request.slot).await?

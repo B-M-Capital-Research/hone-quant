@@ -1,0 +1,6 @@
+{
+  "dry_run": true,
+  "preview": {"action": "cancel_order", "order_id": "1069345399999999999"},
+  "confirmation_code": "412",
+  "next_step": "DRY RUN — nothing was sent to the exchange."
+}

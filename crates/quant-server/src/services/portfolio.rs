@@ -245,8 +245,8 @@ pub async fn snapshot_eod(state: &AppState, account_id: i64, date: NaiveDate) ->
 }
 
 /// Applies splits and dividends whose ex-date is `date` (or the previous week, if missed) to
-/// every active portfolio. Dividends are credited on the ex-date (a simplification: real brokers
-/// pay on the payment date).
+/// every active simulated portfolio. Dividends are credited on the ex-date (a simplification:
+/// real brokers pay on the payment date). Broker-linked accounts get them from the broker.
 pub async fn apply_corporate_actions(state: &Arc<AppState>, date: NaiveDate) -> Result<usize> {
     let client = state.pool.get().await?;
     let books = portfolios::active_books(&client).await?;
@@ -265,9 +265,10 @@ async fn apply_corporate_actions_to(
 ) -> Result<usize> {
     let _guard = state.trading_lock.lock().await;
     let mut client = state.pool.get().await?;
+    // A broker applies splits and dividends itself; synchronisation brings them in.
     let Some(account) = trading::account(&client, book.account.id)
         .await?
-        .filter(|a| a.status == "active")
+        .filter(|a| a.status == "active" && !a.is_external())
     else {
         return Ok(0);
     };

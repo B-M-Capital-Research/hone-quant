@@ -322,3 +322,106 @@ async fn members_see_and_run_only_their_own_portfolios() {
     );
     db.drop().await;
 }
+
+#[tokio::test]
+async fn administrators_link_portfolios_to_the_broker() {
+    use std::sync::Arc;
+
+    use crate::brokers::Brokers;
+    use crate::brokers::fake::FakeBroker;
+
+    let now = Utc.with_ymd_and_hms(2026, 10, 5, 15, 0, 0).unwrap();
+    let fake = Arc::new(FakeBroker::paper(250_000).at(now));
+    let Some((db, state)) = testkit::state_with(now, Brokers::default().with(fake.clone())).await
+    else {
+        eprintln!("skipped: HONE_QUANT_TEST_DATABASE_URL not set");
+        return;
+    };
+    bootstrap::run(&state).await.unwrap();
+    let app = super::router(state.clone());
+    let as_user = |cookie: String| Client {
+        app: app.clone(),
+        cookie,
+    };
+    let admin = as_user(sign_in(&state, "root", "admin").await);
+    let alice = as_user(sign_in(&state, "alice", "member").await);
+
+    // The connection is visible to signed-in users.
+    let (status, brokers) = alice.get("/api/brokers", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(brokers["brokers"][0]["broker"], "longbridge");
+    assert_eq!(brokers["brokers"][0]["mode"], "paper");
+    assert_eq!(brokers["brokers"][0]["signed_in"], true);
+
+    // Members cannot link; unknown brokers and live accounts are refused.
+    let link = json!({"name": "Longbridge", "broker": "longbridge"});
+    let (status, _) = alice.post("/api/portfolios", None, link.clone()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = admin
+        .post(
+            "/api/portfolios",
+            None,
+            json!({"name": "X", "broker": "ibkr"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = admin
+        .post(
+            "/api/portfolios",
+            None,
+            json!({"name": "X", "broker": "longbridge", "mode": "live"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // An administrator links one; the starting capital is the broker's cash.
+    let (status, created) = admin.post("/api/portfolios", None, link.clone()).await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let portfolio = &created["portfolio"];
+    let id = portfolio["id"].as_i64().unwrap();
+    assert_eq!(portfolio["account"]["broker"], "longbridge");
+    assert_eq!(portfolio["account"]["mode"], "paper");
+    assert_eq!(portfolio["summary"]["initial_cash"], 250_000.0);
+    // The same broker account cannot be linked twice.
+    let (status, _) = admin
+        .post(
+            "/api/portfolios",
+            None,
+            json!({"name": "Again", "broker": "longbridge"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    // Synchronise on demand; a reset is refused.
+    fake.set_cash(rust_decimal::Decimal::from(250_100));
+    let (status, synced) = admin.post("/api/account/sync", Some(id), json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{synced}");
+    assert_eq!(synced["report"]["adjustments"][0]["item"], "cash");
+    assert_eq!(synced["account"]["cash"], "250100.00");
+    let (status, _) = admin
+        .post(
+            "/api/account/reset",
+            Some(id),
+            json!({"initial_cash": 1000000, "confirm": "RESET"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    // A simulated portfolio has nothing to synchronise with; its cash is still required.
+    let main = {
+        let client = state.pool.get().await.unwrap();
+        portfolios::list(&client, false).await.unwrap()[0].id
+    };
+    let (status, _) = admin.post("/api/account/sync", Some(main), json!({})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = admin
+        .post("/api/portfolios", None, json!({"name": "No cash"}))
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // The broker unreachable: a clear, retryable error.
+    fake.sign_in_as(crate::brokers::AccountMode::Live, "lb", "live:1");
+    let (status, error) = admin.post("/api/account/sync", Some(id), json!({})).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{error}");
+    db.drop().await;
+}

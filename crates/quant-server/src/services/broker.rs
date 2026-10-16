@@ -1,9 +1,11 @@
 //! The paper broker: executes plans against live quotes and keeps the account's books.
 //!
-//! hone-quant has no live-broker integration at all — this module *is* the broker. Fills use
-//! the same cost model as the backtester (commission, regulatory fee, slippage). Every fill,
-//! position change and cash movement of a plan is written in a single database transaction, so
-//! a failure leaves the books exactly as they were.
+//! For simulated accounts this module *is* the broker. Fills use the same cost model as the
+//! backtester (commission, regulatory fee, slippage). Every fill, position change and cash
+//! movement of a plan is written in a single database transaction, so a failure leaves the
+//! books exactly as they were. Plans of accounts linked to an external broker (Longbridge) are
+//! claimed here the same way and then handed to [`brokerage`], which sends their orders to the
+//! broker and books the fills it reports.
 //!
 //! Per-order checks at execution time: the quote must be fresh, must not have moved more than
 //! the configured deviation from the price the plan was sized with, sells cannot exceed the
@@ -19,7 +21,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::notify::{self, Event};
-use crate::services::marketdata;
+use crate::services::{brokerage, marketdata};
 use crate::state::{AppState, ServerEvent};
 use crate::store::portfolios;
 use crate::store::settings::{self, ExecutionSettings};
@@ -27,10 +29,13 @@ use crate::store::strategy as strategy_store;
 use crate::store::system;
 use crate::store::trading::{self, NewFill, Position, dec, f};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ExecutionReport {
     pub plan_id: i64,
+    /// `executed`, `partially_executed`, `failed`, or `executing` while orders work at a broker.
     pub status: String,
+    /// Orders sent to an external broker (0 for the simulator).
+    pub submitted: usize,
     pub filled: usize,
     pub partial: usize,
     pub rejected: usize,
@@ -93,14 +98,23 @@ pub async fn execute_plan(
     };
     let portfolio = portfolios::for_account(&client, plan.account_id).await?;
     let (portfolio_id, tag) = (portfolio.id, portfolio.tag());
+    let external = trading::account(&client, plan.account_id)
+        .await?
+        .is_some_and(|a| a.is_external());
     state.emit(ServerEvent::Plan {
         plan_id,
         status: "executing".into(),
         portfolio_id,
     });
 
-    let outcome = execute_claimed(state, &mut client, &plan, actor).await;
+    let outcome = if external {
+        brokerage::execute_claimed(state, &plan, actor).await
+    } else {
+        execute_claimed(state, &mut client, &plan, actor).await
+    };
     match outcome {
+        // At a broker the plan finishes when its orders end; `brokerage` reports it then.
+        Ok(report) if external => Ok(report),
         Ok(report) => {
             drop(client);
             tracing::info!(
@@ -206,6 +220,7 @@ async fn execute_claimed(
     let mut report = ExecutionReport {
         plan_id: plan.id,
         status: String::new(),
+        submitted: 0,
         filled: 0,
         partial: 0,
         rejected: 0,
@@ -342,6 +357,8 @@ async fn execute_claimed(
                 fees,
                 slippage,
                 realized_pnl: realized,
+                broker_trade_id: None,
+                executed_at: None,
             },
         )
         .await?;
@@ -429,6 +446,17 @@ pub async fn cancel_plan(
     let plan = trading::plan_for_update(&tx, plan_id)
         .await?
         .ok_or_else(|| anyhow!("plan {plan_id} not found"))?;
+    if plan.status == "executing"
+        && trading::account(&tx, plan.account_id)
+            .await?
+            .is_some_and(|a| a.is_external())
+    {
+        // Orders are working at the broker: stop them there.
+        drop(tx);
+        drop(client);
+        drop(_guard);
+        return brokerage::cancel_executing(state, plan_id, actor, reason, ip).await;
+    }
     if plan.status != "pending" {
         bail!(
             "only pending plans can be cancelled (this one is {})",

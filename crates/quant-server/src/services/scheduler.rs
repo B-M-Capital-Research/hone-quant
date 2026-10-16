@@ -15,6 +15,11 @@
 //! - close +15 min: refresh today's bars; closing NAV snapshot; daily summary at +20 min;
 //! - last session of the week, close +30 min: weekly report.
 //!
+//! Portfolios linked to a broker (Longbridge) are also synchronised with it before the open,
+//! every five minutes during the session and before their closing snapshot, and every tick
+//! follows their working orders (fills, the buys that wait for the sells, cancellation at the
+//! plan's deadline).
+//!
 //! Plan slots, executions, risk checks, snapshots and reports run for every active portfolio;
 //! their job keys carry the portfolio (`<date>:p<id>`), so one portfolio's failure is retried
 //! without repeating another's work.
@@ -32,7 +37,7 @@ use tokio::sync::Mutex;
 use crate::db::lock_key;
 use crate::notify::{self, Event};
 use crate::services::reminders::{self, Schedule};
-use crate::services::{broker, marketdata, planner, portfolio};
+use crate::services::{broker, brokerage, marketdata, planner, portfolio};
 use crate::state::AppState;
 use crate::store::portfolios::{self, Book};
 use crate::store::settings::{self, AutomationMode, ExecutionSettings, RiskSettings};
@@ -217,13 +222,15 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
                 let report = marketdata::sync_daily(&s, 10, false).await?;
                 let actions = marketdata::sync_corporate_actions(&s, &[]).await.unwrap_or(0);
                 let applied = portfolio::apply_corporate_actions(&s, today).await?;
+                let failures = brokerage::sync_all(&s, "scheduler").await?;
+                broker_alerts(&s, &failures).await?;
                 if !report.failed.is_empty() && report.failed.len() * 2 > report.symbols {
                     let _ = notify::notify(&s, Event::DataSyncFailed {
                         error: format!("{} of {} symbols failed to refresh", report.failed.len(), report.symbols),
                     })
                     .await;
                 }
-                Ok(json!({"bars": report.bars, "failed": report.failed, "actions": actions, "applied": applied}))
+                Ok(json!({"bars": report.bars, "failed": report.failed, "actions": actions, "applied": applied, "broker_failures": failures.len()}))
             })
             .await;
         }
@@ -332,6 +339,15 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
                 .is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(300))
         {
             ls.last_risk_check = Some(Instant::now());
+            // Broker-linked accounts follow the broker (cash, holdings) before they are checked.
+            if books.iter().any(|b| b.account.is_external()) {
+                match brokerage::sync_all(state, "scheduler").await {
+                    Ok(failures) => broker_alerts(state, &failures).await?,
+                    Err(error) => {
+                        tracing::warn!(error = %format!("{error:#}"), "broker synchronisation failed")
+                    }
+                }
+            }
             for book in books.iter().filter(|b| trades_on(b, today)) {
                 risk_checks(state, book, today).await?;
             }
@@ -349,11 +365,16 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
             for book in books.iter().filter(|b| trades_on(b, today)) {
                 let s = state.clone();
                 let account_id = book.account.id;
+                let external = book.account.is_external();
                 let snapped = once(
                     state,
                     "eod_snapshot",
                     &book_key(&key, book),
                     || async move {
+                        if external {
+                            // The closing books are the broker's.
+                            brokerage::sync_account(&s, account_id, "scheduler").await?;
+                        }
                         let nav = portfolio::snapshot_eod(&s, account_id, today).await?;
                         Ok(json!({"nav": nav}))
                     },
@@ -399,6 +420,11 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
                 .await;
             }
         }
+    }
+
+    // Orders working at a broker: read back fills, send what became eligible, end what is due.
+    if let Err(error) = brokerage::reconcile(state).await {
+        tracing::warn!(error = %format!("{error:#}"), "following broker orders failed");
     }
 
     // Custom reminders.
@@ -559,6 +585,40 @@ async fn risk_checks(state: &Arc<AppState>, book: &Book, today: NaiveDate) -> Re
             )
             .await?;
             Ok(json!({"loss": day}))
+        })
+        .await;
+    }
+    Ok(())
+}
+
+/// Tells each portfolio whose broker could not be reached (at most hourly).
+async fn broker_alerts(state: &Arc<AppState>, failures: &[brokerage::SyncFailure]) -> Result<()> {
+    if failures.is_empty() {
+        return Ok(());
+    }
+    let client = state.pool.get().await?;
+    let mut tagged = Vec::new();
+    for failure in failures {
+        if let Some(portfolio) = portfolios::get(&client, failure.portfolio_id).await? {
+            tagged.push((portfolio.tag(), failure.clone()));
+        }
+    }
+    drop(client);
+    let hour = state.now().format("%Y-%m-%dT%H").to_string();
+    for (tag, failure) in tagged {
+        let s = state.clone();
+        let key = format!("{hour}:p{}", failure.portfolio_id);
+        let _ = once(state, "broker_sync_failed", &key, || async move {
+            notify::notify_in(
+                &s,
+                &tag,
+                Event::BrokerSyncFailed {
+                    broker: failure.broker.clone(),
+                    error: failure.error.clone(),
+                },
+            )
+            .await?;
+            Ok(json!({"account_id": failure.account_id, "error": failure.error}))
         })
         .await;
     }

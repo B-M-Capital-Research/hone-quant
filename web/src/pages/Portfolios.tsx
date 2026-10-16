@@ -7,9 +7,10 @@ import { useSearchParams } from "@solidjs/router";
 import { For, Show, createResource, createSignal, onCleanup, onMount } from "solid-js";
 import { Icon } from "@/components/Icon";
 import { NoPortfolio } from "@/components/NoPortfolio";
-import { ModeChip, ownerLabel } from "@/components/PortfolioSwitcher";
+import { ModeChip, VenueChip, ownerLabel } from "@/components/PortfolioSwitcher";
 import { Empty, ErrorState, Loading, Pct, Switch } from "@/components/ui";
 import { tpl } from "@/i18n";
+import { common } from "@/i18n/common";
 import { portfoliosText } from "@/i18n/portfolios";
 import { api } from "@/lib/api";
 import { onServerEvent } from "@/lib/events";
@@ -180,6 +181,12 @@ function PortfolioCard(props: { portfolio: Portfolio; onEdit: (p: Portfolio) => 
               <dt>{t().card.automation}</dt>
               <dd>
                 <ModeChip mode={p().effective_mode} />
+              </dd>
+              <dt>{common().venue.label}</dt>
+              <dd>
+                <Show when={p().account?.broker !== "sim"} fallback={<span title={common().venue.sim_hint}>{common().venue.sim}</span>}>
+                  <VenueChip account={p().account} />
+                </Show>
               </dd>
               <dt>{t().card.positions}</dt>
               <dd class="num">{tpl(t().card.positions_value, { n: s().positions })}</dd>

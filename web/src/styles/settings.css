@@ -1485,6 +1485,22 @@
   gap: 18px 24px;
 }
 
+.broker-heading {
+  margin: 0 0 4px;
+  color: var(--hone-ink-800);
+  font-size: var(--hone-text-sm);
+  font-weight: 600;
+}
+
+.broker-list {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--hone-ink-800);
+  font-size: var(--hone-text-sm);
+}
+
 .danger-points {
   display: grid;
   flex: 1;

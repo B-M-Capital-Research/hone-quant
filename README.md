@@ -21,12 +21,15 @@
 hone-quant turns honeclaw's industry research into a disciplined, automated portfolio process for
 US equities. honeclaw's ontology defines the AI-infrastructure universe (ten sectors, 64
 companies); hone-quant sizes positions on it, generates a trading plan twice every trading day,
-executes it on a paper account and keeps a complete, auditable history of strategies, plans,
-orders, fills and manual decisions. The interface is bilingual (English / 简体中文) and shows
+executes it on a paper account (hone-quant's own simulator, or a Longbridge paper-trading
+account) and keeps a complete, auditable history of strategies, plans, orders, fills and manual
+decisions. The interface is bilingual (English / 简体中文) and shows
 Singapore and New York time side by side.
 
-> **Paper trading only.** hone-quant contains no brokerage integration and cannot place real
-> orders. Nothing here is investment advice.
+> **Paper trading only.** hone-quant simulates its own fills or, for portfolios linked to a
+> Longbridge **paper-trading** account, sends orders to that simulated account. It cannot place
+> real-money orders: Longbridge refuses its requests for live accounts and nothing in the code
+> enables one. Nothing here is investment advice.
 
 **Contents:** [Backtest results](#backtest-results) ·
 [Researchers, ontology and agents](#researchers-ontology-and-agents) · [Highlights](#highlights) ·
@@ -109,6 +112,11 @@ was decided is exactly what gets traded.
   chosen period (1 day to 1 year) as one candle, grouped by sector, with current and target
   weights underneath. One click opens a company's own candles with moving averages, volume and
   this account's fills.
+- **Longbridge paper trading.** Link a portfolio to a Longbridge paper-trading account through
+  the open-source `longbridge` command-line client: plans send day limit orders to the broker
+  (sells first, then buys sized to the cash the broker reports), fills and charges are read back
+  and booked once each, and cash and holdings are synchronised with the broker, every difference
+  on the audit log. See [docs/longbridge.md](docs/longbridge.md).
 - **Separate portfolios.** Run several paper portfolios side by side, for different starting
   capital or for different people managing their own holdings. Each has its own holdings, cash,
   plans, fills, performance, automation mode and active strategy version, chosen from the shared
@@ -323,6 +331,8 @@ PostgreSQL and recorded in the audit log.
 | `HONE_QUANT_AUTH_MODE` | `local` | `honeclaw`: no local accounts; honeclaw administrators only, checked on the server (`HONE_QUANT_HONECLAW_*`) |
 | `HONE_QUANT_ORIGIN_TOKEN` | — | Secret the proxy in front must send as `X-Hone-Quant-Origin-Token`; anything else gets 404 |
 | `HONE_QUANT_DEV_CLOCK` | — | Demo only: start the clock at this instant (RFC 3339) |
+| `HONE_QUANT_LONGBRIDGE_BIN` | `longbridge` | The Longbridge command-line client, for portfolios linked to a Longbridge paper account |
+| `HONE_QUANT_LONGBRIDGE_HOME` | the service's `HOME` | Where that client keeps its sign-in (`$HOME/.longbridge`) |
 
 Every variable is documented in [`deploy/runtime.env.example`](deploy/runtime.env.example).
 
@@ -338,6 +348,8 @@ hone-quant fmp-check [--symbol NVDA]    probe every FMP endpoint hone-quant uses
 hone-quant sync [--full]                fetch market data now
 hone-quant universe sync [--apply]      compare honeclaw's ontology with the database
 hone-quant universe build --edits <honeclaw>/data/industry_map/edits.json
+hone-quant longbridge [ARGS…]           run the Longbridge client as the server does, e.g. `auth login`;
+                                        without arguments: check the connection, account, cash and holdings
 ```
 
 From source, prefix with `cargo run --release -p quant-server --`. On a deployed host, run them
@@ -365,7 +377,9 @@ with the service's user and environment: `sudo /opt/hone-quant/current/scripts/h
 
 **Out of scope by design**
 
-- **Live trading.** There is no broker integration and no setting that enables one.
+- **Live trading.** Portfolios can be linked to a Longbridge *paper* account only; no live
+  broker client is registered and no setting enables one (see
+  [docs/longbridge.md](docs/longbridge.md#live-trading-not-enabled)).
 - **Stock selection.** The universe comes from honeclaw's ontology; hone-quant only sizes positions.
 - **Intraday signals.** Strategies use daily closes plus the current quote; backtests use daily bars.
 
@@ -373,7 +387,8 @@ with the service's user and environment: `sudo /opt/hone-quant/current/scripts/h
 
 ```text
 crates/quant-core     strategy, rebalancer, costs, schedule, metrics and backtester: pure Rust, no I/O
-crates/quant-server   axum API, scheduler, paper broker, FMP client, notifications, PostgreSQL migrations
+crates/quant-server   axum API, scheduler, paper broker, Longbridge client, FMP client, notifications,
+                      PostgreSQL migrations
 web/                  SolidJS + ECharts UI (zh/en), embedded into the server binary
 config/               bundled universe snapshot built from the honeclaw ontology
 deploy/               systemd units, runtime.env template, PostgreSQL setup, Caddy example and
@@ -408,6 +423,7 @@ The bundled universe is regenerated from honeclaw's ontology with
 
 - [Strategy and trading methodology](docs/methodology.md) ([中文](docs/methodology.zh.md))
 - [Architecture](docs/architecture.md)
+- [Trading through a Longbridge paper account](docs/longbridge.md) ([中文](docs/longbridge.zh.md))
 - [Deployment on Google Compute Engine](docs/deployment-gce.md) ([中文](docs/deployment-gce.zh.md))
 - [hone-claw.com/quant: production deployment](docs/deploy-hone-claw-quant.md) and its
   [Cloudflare Worker](deploy/cloudflare/quant-proxy/README.md)

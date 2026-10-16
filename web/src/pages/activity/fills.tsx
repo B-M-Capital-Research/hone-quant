@@ -86,7 +86,7 @@ export function FillsTab(props: TabProps) {
     const cols = t().fills.cols;
     const header = [
       tc.id, tc.order_id, tc.plan_id, tc.executed_at, tc.local_time, tc.exchange_time, cols.symbol, tc.name, cols.side, cols.qty,
-      cols.price, cols.quote, tc.quote_ts, cols.slippage, cols.commission, cols.fees, cols.notional, cols.pnl,
+      cols.price, cols.quote, tc.quote_ts, cols.slippage, cols.commission, cols.fees, cols.notional, cols.pnl, tc.broker_trade_id,
     ];
     const rows = data.rows.map((x) => [
       x.id,
@@ -107,6 +107,7 @@ export function FillsTab(props: TabProps) {
       x.fees,
       x.notional,
       x.realized_pnl ?? "",
+      x.broker_trade_id ?? "",
     ]);
     exportRows(csvName("fills", f()), header, rows, data.truncated ? data.rows.length : null);
   };

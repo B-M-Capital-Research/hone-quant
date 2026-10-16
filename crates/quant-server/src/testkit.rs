@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use quant_core::calendar::MarketCalendar;
 
 use crate::auth::LoginLimiter;
+use crate::brokers::Brokers;
 use crate::config::{AuthMode, Config, CookieSecurity, DbConfig, LogFormat, MarketConfig};
 use crate::crypto::SecretBox;
 use crate::db::testing::TestDb;
@@ -18,6 +19,11 @@ use crate::universe;
 /// A demo-market state whose clock always reads `now` (and whose database clock, `app_now()`,
 /// starts there too); `None` when no test database is set.
 pub async fn state_at(now: DateTime<Utc>) -> Option<(TestDb, Arc<AppState>)> {
+    state_with(now, Brokers::default()).await
+}
+
+/// [`state_at`] with these broker clients (e.g. a [`crate::brokers::fake::FakeBroker`]).
+pub async fn state_with(now: DateTime<Utc>, brokers: Brokers) -> Option<(TestDb, Arc<AppState>)> {
     let db = TestDb::new(DataSource::Demo).await?;
     let clock: Clock = Arc::new(move || now);
     let url = std::env::var("HONE_QUANT_TEST_DATABASE_URL").ok()?;
@@ -68,6 +74,7 @@ pub async fn state_at(now: DateTime<Utc>) -> Option<(TestDb, Arc<AppState>)> {
         base_path: String::new(),
         auth: AuthMode::Local,
         origin_token: None,
+        longbridge: Default::default(),
     };
     let (events, _) = tokio::sync::broadcast::channel(256);
     let state = Arc::new(AppState {
@@ -75,6 +82,7 @@ pub async fn state_at(now: DateTime<Utc>) -> Option<(TestDb, Arc<AppState>)> {
         config: Arc::new(config),
         pool,
         market: Arc::new(DemoMarket::new(instruments, 7, clock.clone())),
+        brokers,
         calendar: Arc::new(MarketCalendar::nyse()),
         clock,
         events,

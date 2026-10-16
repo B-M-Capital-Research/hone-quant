@@ -147,6 +147,8 @@ export const api = {
   ledger: (limit = 500) => get<{ entries: T.LedgerEntry[] }>(`/ledger${qs({ limit })}`),
   accounts: () => get<{ accounts: T.Account[] }>("/accounts"),
   resetAccount: (initial_cash: number) => post<unknown>("/account/reset", { initial_cash, confirm: "RESET" }),
+  syncAccount: () => post<{ report: T.SyncReport; account: T.Account }>("/account/sync"),
+  brokers: () => get<{ brokers: T.BrokerConnection[] }>("/brokers"),
 
   // Strategy & universe
   strategy: () => get<T.StrategyOverview>("/strategy"),

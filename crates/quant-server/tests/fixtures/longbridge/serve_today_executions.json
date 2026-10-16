@@ -1,0 +1,5 @@
+[
+  {"order_id": "1069345312341434368", "trade_id": "1069345312341434368-1760623204000001", "symbol": "NVDA.US", "trade_done_at": "2026-10-16T14:00:04Z", "quantity": "12", "price": "120.15", "side": "Buy"},
+  {"order_id": "1069345312341434368", "trade_id": "1069345312341434368-1760623204000002", "symbol": "NVDA.US", "trade_done_at": "2026-10-16T14:00:04Z", "quantity": "8", "price": "120.205", "side": "Buy"},
+  {"order_id": "1069345399999999999", "trade_id": "1069345399999999999-1760623209000001", "symbol": "AVGO.US", "trade_done_at": "2026-10-16T14:00:09Z", "quantity": "4", "price": "298.5", "side": "Sell"}
+]

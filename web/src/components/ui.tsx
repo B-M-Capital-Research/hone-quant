@@ -218,6 +218,8 @@ export function PlanStatusChip(props: { status: PlanStatus | "scheduled" | "canc
 
 const ORDER_TONE: Record<OrderStatus, string> = {
   planned: "orange",
+  submitting: "blue",
+  submitted: "blue",
   skipped: "",
   filled: "green",
   partially_filled: "yellow",

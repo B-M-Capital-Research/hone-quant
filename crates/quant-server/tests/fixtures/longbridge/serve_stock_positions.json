@@ -1,0 +1,12 @@
+{
+  "list": [
+    {
+      "account_channel": "lb_papertrading",
+      "stock_info": [
+        {"symbol": "NVDA.US", "symbol_name": "NVIDIA", "quantity": "120", "available_quantity": "120", "currency": "USD", "cost_price": "118.4512", "market": "US", "init_quantity": "120"},
+        {"symbol": "AVGO.US", "symbol_name": "Broadcom", "quantity": "40", "available_quantity": "30", "currency": "USD", "cost_price": "301.2", "market": "US", "init_quantity": null},
+        {"symbol": "700.HK", "symbol_name": "TENCENT", "quantity": "100", "available_quantity": "100", "currency": "HKD", "cost_price": "388", "market": "HK", "init_quantity": "100"}
+      ]
+    }
+  ]
+}

@@ -51,7 +51,13 @@ export default function PlanDetail() {
     });
     if (note === null) return;
     try {
-      const { report } = (await api.approvePlan(plan.id, note)) as { report: { filled: number; bought: number; sold: number; costs: number } };
+      const { report } = (await api.approvePlan(plan.id, note)) as {
+        report: { status: string; submitted: number; filled: number; bought: number; sold: number; costs: number };
+      };
+      if (report.status === "executing") {
+        toast(t().detail.sent_to_broker, tpl(t().detail.sent_report, { submitted: report.submitted }), "success");
+        return;
+      }
       toast(
         c().plan_status.executed,
         tpl(t().detail.executed_report, {
@@ -82,6 +88,27 @@ export default function PlanDetail() {
     try {
       await api.cancelPlan(plan.id, reason);
       toast(c().plan_status.cancelled, undefined, "success");
+    } catch (error) {
+      toastError(error);
+    } finally {
+      refetch();
+    }
+  };
+
+  /** Broker-linked plans: stop an execution whose orders are working at the broker. */
+  const stop = async (plan: Plan) => {
+    const reason = await confirmAction({
+      title: t().detail.stop,
+      body: t().detail.stop_body,
+      confirmLabel: t().detail.stop,
+      danger: true,
+      askReason: true,
+      reasonLabel: c().words.reason,
+    });
+    if (reason === null) return;
+    try {
+      await api.cancelPlan(plan.id, reason);
+      toast(t().detail.stopped, undefined, "success");
     } catch (error) {
       toastError(error);
     } finally {
@@ -131,6 +158,8 @@ export default function PlanDetail() {
         const pending = () => plan().status === "pending";
         /** Authorised by the plan's own portfolio, whichever one is selected. */
         const canAct = () => pending() && d().can_trade === true;
+        /** Executing at a broker: its working orders can be stopped. */
+        const canStop = () => plan().status === "executing" && d().can_trade === true && d().orders.some((o) => o.submitted_at !== null);
         /** Opened from a link about another portfolio than the one being worked in. */
         const elsewhere = () => (d().portfolio && d().portfolio.id !== selectedId() ? d().portfolio : null);
         const rebalance = () => d().diagnostics.rebalance;
@@ -166,6 +195,13 @@ export default function PlanDetail() {
                   {tpl(t().detail.mode, { mode: c().mode[plan().automation_mode] })}
                 </p>
               </div>
+              <Show when={canStop()}>
+                <div class="row">
+                  <button class="btn danger" onClick={() => stop(plan())}>
+                    <Icon name="ban" size={15} /> {t().detail.stop}
+                  </button>
+                </div>
+              </Show>
               <Show when={canAct()}>
                 <div class="row">
                   <button class="btn danger" onClick={() => cancel(plan())}>
@@ -494,7 +530,7 @@ function OrdersTable(props: { detail: Detail; name: (s: string) => string; edita
                   <td class="xs nowrap">{c().reason[o.reason]}</td>
                   <td class="r num">
                     {fmtQty(o.qty)}
-                    <Show when={o.status === "partially_filled"}>
+                    <Show when={o.status === "partially_filled" || (o.status === "submitted" && (toNumber(o.filled_qty) ?? 0) > 0)}>
                       <div class="xs muted">
                         {t().detail.col_filled} {fmtQty(o.filled_qty)}
                       </div>
@@ -507,6 +543,16 @@ function OrdersTable(props: { detail: Detail; name: (s: string) => string; edita
                   </td>
                   <td>
                     <OrderStatusChip status={o.status} reason={o.status_reason} />
+                    <Show when={o.broker_order_id}>
+                      {(id) => (
+                        <div class="xs muted mono nowrap" title={o.broker_message ?? o.broker_status ?? undefined}>
+                          {tpl(t().detail.broker_order, { id: id() })}
+                        </div>
+                      )}
+                    </Show>
+                    <Show when={!o.broker_order_id && o.broker_message}>
+                      <div class="xs muted">{o.broker_message}</div>
+                    </Show>
                   </td>
                   <Show when={props.editable}>
                     <td class="r">

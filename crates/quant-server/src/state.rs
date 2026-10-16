@@ -9,6 +9,7 @@ use serde::Serialize;
 use tokio::sync::{Mutex, broadcast};
 
 use crate::auth::LoginLimiter;
+use crate::brokers::Brokers;
 use crate::config::Config;
 use crate::crypto::SecretBox;
 use crate::honeclaw_auth::HoneclawVerifier;
@@ -85,6 +86,8 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub pool: Pool,
     pub market: Arc<dyn MarketData>,
+    /// External broker clients (Longbridge), by broker and account mode.
+    pub brokers: Brokers,
     pub calendar: Arc<MarketCalendar>,
     pub clock: Clock,
     pub events: broadcast::Sender<ServerEvent>,
@@ -94,8 +97,8 @@ pub struct AppState {
     pub limiter: LoginLimiter,
     /// Present in honeclaw sign-in mode: checks honeclaw sessions for every protected request.
     pub honeclaw: Option<Arc<HoneclawVerifier>>,
-    /// Serialises everything that mutates the paper account (plan generation, execution,
-    /// corporate actions, resets) so two of them can never interleave.
+    /// Serialises everything that mutates an account (plan generation, execution, broker
+    /// synchronisation, corporate actions, resets) so two of them can never interleave.
     pub trading_lock: Mutex<()>,
     pub started_at: DateTime<Utc>,
 }

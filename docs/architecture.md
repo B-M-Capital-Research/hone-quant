@@ -7,9 +7,9 @@ deliberately small: one process, one database schema, no message broker, no exte
                 ┌──────────────────────── hone-quant (one process) ────────────────────────┐
  browser ──HTTP─┤ axum API (/api/*) · SSE (/api/events) · embedded web UI (rust-embed)     │
                 │                                                                          │
-                │ scheduler (leader-elected) ─▶ planner ─▶ paper broker                    │
-                │        │                        │            │                           │
-                │        ├─▶ market data (FMP or demo)         ├─▶ notifications ─▶ Telegram │
+                │ scheduler (leader-elected) ─▶ planner ─▶ paper broker | brokerage ───────┼─▶ longbridge serve
+                │        │                        │            │                           │   (child process,
+                │        ├─▶ market data (FMP or demo)         ├─▶ notifications ─▶ Telegram │    JSON-RPC/stdio)
                 │        └─▶ reminders, risk checks, reports   │      Feishu, WeCom, Slack,  │
                 │                                              │      Discord, webhook, mail │
                 │ quant-core: calendar · strategy engine · rebalancer · costs · metrics ·   │
@@ -24,7 +24,7 @@ deliberately small: one process, one database schema, no message broker, no exte
 | Path | Contents |
 | --- | --- |
 | `crates/quant-core` | Pure domain logic: NYSE calendar and plan schedule, statistics, the strategy engine, the rebalancer, the cost model, performance metrics and the daily-bar backtester. No I/O. |
-| `crates/quant-server` | The `hone-quant` binary: configuration, PostgreSQL pool and migrations, stores, market data (FMP client, demo market), services (market data sync, portfolio valuation, planner, paper broker, scheduler, reminders, backtests), notifications and channels, HTTP API, embedded UI, CLI. |
+| `crates/quant-server` | The `hone-quant` binary: configuration, PostgreSQL pool and migrations, stores, market data (FMP client, demo market), services (market data sync, portfolio valuation, planner, paper broker, brokerage for broker-linked accounts, scheduler, reminders, backtests), broker clients (Longbridge), notifications and channels, HTTP API, embedded UI, CLI. |
 | `web` | SolidJS + Vite single-page app: pages, components, ECharts builders, bilingual dictionaries, design tokens. Built into `web/dist` and embedded in the binary at compile time. |
 | `config` | The universe generated from honeclaw's ontology (`universe.json`) and its bilingual overlay. |
 | `deploy`, `scripts`, `docs` | systemd units, PostgreSQL setup, runtime template, release/deploy/backup scripts, runbooks. |
@@ -40,10 +40,14 @@ deliberately small: one process, one database schema, no message broker, no exte
   cash, plans, fills, NAV history, the active strategy version, cancelled slots and
   portfolio-only restrictions are per portfolio. The universe, the strategy library, market data,
   the schedule, costs, risk thresholds, notification channels, reminders and backtests are shared.
-- **Paper account**: `accounts` (one active per portfolio; `mode` is constrained to `'paper'` by
-  a database CHECK), `positions` (quantity, average cost, realised P&L, dividends), `cash_ledger`
-  (every cash movement with the running balance), `nav_snapshots` and `position_snapshots`
-  (end of day).
+- **Account**: `accounts` (one active per portfolio), `positions` (quantity, average cost,
+  realised P&L, dividends), `cash_ledger` (every cash movement with the running balance),
+  `nav_snapshots` and `position_snapshots` (end of day). `broker` says who executes: `sim`
+  (hone-quant's paper broker) or `longbridge` (an account at the broker, identified by
+  `broker_account`, unique among active accounts, with the latest `sync_status`). `mode` is
+  `paper`; the database allows `live` only for broker accounts and nothing creates one. Orders
+  sent to a broker carry the broker's order id, status and message, and fills its trade id
+  (unique per account, so a fill is never booked twice). See [longbridge.md](longbridge.md).
 - **Strategy**: immutable `strategy_versions` (validated parameters), a library shared by every
   portfolio, and `strategy_activations` (which version each account trades, who activated it,
   when and why). `trading_restrictions` hold exclusions and locks, for every portfolio
@@ -71,6 +75,11 @@ deliberately small: one process, one database schema, no message broker, no exte
                  executing ──▶ executed | partially_executed | failed
 ```
 
+For a broker-linked account `executing` lasts while its orders work at the broker: sells are
+sent first, buys once the sells have ended, fills are read back every tick, working orders are
+cancelled at the deadline (or when an operator stops the plan), and the plan ends when every
+order has.
+
 A slot that should have produced a plan but did not is recorded as `skipped` with the reason
 (automation paused, cancelled by an operator, missed while the service was down, or an error).
 
@@ -91,10 +100,13 @@ every active portfolio, keyed per portfolio (`<date>:p<id>`):
 | Risk checks | every 5 min: drawdown and daily-loss thresholds, stale data |
 | Post-close sync, close + 15 min | final bars and closes, end-of-day snapshot, daily summary |
 | Reports & reminders | weekly report, custom reminders, deferred (quiet-hours) notifications |
+| Broker orders | every tick, broker-linked accounts with working orders: fills, eligible buys, deadline |
+| Broker sync | pre-open, every 5 min during the session, before each plan and closing snapshot |
 
-Everything that changes a paper account — plan generation, execution, corporate actions,
-account resets, archiving a portfolio — is serialised by one in-process lock, and each plan
-executes in a single database transaction after re-checking every quote.
+Everything that changes an account — plan generation, execution, broker synchronisation and
+fills, corporate actions, account resets, archiving a portfolio — is serialised by one
+in-process lock. A simulated plan executes in a single database transaction after re-checking
+every quote; at a broker each fill is booked in its own transaction as it is read back.
 
 ## Time
 
@@ -117,8 +129,12 @@ executes in a single database transaction after re-checking every quote.
 
 ## Security
 
-- Paper only: there is no brokerage client in the code base, and the database rejects any
-  account mode other than `paper`.
+- Paper only. Broker-linked portfolios reach Longbridge *paper* accounts only: the client runs
+  with `LONGBRIDGE_PAPERTRADING=true` (Longbridge refuses such requests for real-money
+  accounts), the account channel is checked, orders go through the client's dry-run and
+  confirmation-code gate after the dry run is compared with the intended order, no live client
+  is registered, and the database rejects a live mode for the simulator. hone-quant never holds
+  Longbridge credentials; the client keeps its own machine-bound token.
 - Operators sign in with Argon2id-hashed passwords; sessions are random 256-bit tokens (stored
   hashed) in `HttpOnly; SameSite=Strict` cookies, with failed-login throttling. Roles: admin
   (every portfolio and setting), member (creates and runs their own portfolios, reads what is

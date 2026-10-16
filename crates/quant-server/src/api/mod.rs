@@ -239,6 +239,8 @@ pub fn router(state: SharedState) -> Router {
         .route("/ledger", get(trading::ledger))
         .route("/accounts", get(trading::accounts))
         .route("/account/reset", post(trading::reset_account))
+        .route("/account/sync", post(trading::sync_account))
+        .route("/brokers", get(trading::brokers))
         // Portfolios.
         .route(
             "/portfolios",

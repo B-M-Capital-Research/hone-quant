@@ -13,7 +13,7 @@ use super::context::{PortfolioCtx, TradeCtx, authorize_account};
 use super::error::{ApiError, ApiResult};
 use crate::auth::{CurrentUser, Role};
 use crate::notify::{self, Event};
-use crate::services::{broker, planner, portfolio};
+use crate::services::{broker, brokerage, planner, portfolio};
 use crate::state::{ServerEvent, SharedState};
 use crate::store::portfolios;
 use crate::store::settings::{self, AutomationMode, AutomationSettings};
@@ -728,6 +728,11 @@ pub async fn reset_account(
             "initial cash must be between 1,000 and 10,000,000,000",
         ));
     }
+    if ctx.account().is_external() {
+        return Err(ApiError::conflict(
+            "a portfolio linked to a broker account cannot be reset; archive it and link a new portfolio instead",
+        ));
+    }
     let _guard = state.trading_lock.lock().await;
     let mut client = state.pool.get().await?;
     let tx = client.transaction().await?;
@@ -791,4 +796,38 @@ pub async fn reset_account(
     let client = state.pool.get().await?;
     let valuation = portfolio::valuation(&state, &client, &account).await?;
     Ok(Json(json!({"account": account, "valuation": valuation})))
+}
+
+/// The broker connections this server can use, as they stand now (this runs each client).
+pub async fn brokers(
+    State(state): State<SharedState>,
+    _user: CurrentUser,
+) -> ApiResult<Json<Value>> {
+    let mut connections = Vec::new();
+    for client in state.brokers.all() {
+        connections.push(client.status().await);
+    }
+    Ok(Json(json!({"brokers": connections})))
+}
+
+/// Synchronises the portfolio's broker-linked account now.
+pub async fn sync_account(
+    State(state): State<SharedState>,
+    TradeCtx(ctx): TradeCtx,
+) -> ApiResult<Json<Value>> {
+    let account = ctx.account();
+    if !account.is_external() {
+        return Err(ApiError::bad(
+            "this portfolio trades on hone-quant's simulator; there is no broker to synchronise with",
+        ));
+    }
+    let report = brokerage::sync_account(&state, account.id, &ctx.user.username)
+        .await
+        .map_err(|e| match e.downcast::<crate::brokers::BrokerError>() {
+            Ok(broker) => broker.into(),
+            Err(other) => ApiError::Unavailable(format!("{other:#}")),
+        })?;
+    let client = state.pool.get().await?;
+    let account = trading::account(&client, account.id).await?;
+    Ok(Json(json!({"report": report, "account": account})))
 }

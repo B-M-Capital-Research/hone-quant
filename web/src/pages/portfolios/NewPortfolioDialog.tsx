@@ -1,5 +1,7 @@
 /**
- * "New portfolio": name, description, initial cash, the strategy version to start with (from the
+ * "New portfolio": name, description, where it trades (hone-quant's simulator or, for
+ * administrators, a Longbridge paper-trading account), initial cash (simulated portfolios; a
+ * linked one starts from the broker account), the strategy version to start with (from the
  * shared library), the automation mode and, for administrators, the owner. The app switches to
  * the new portfolio once it exists.
  */
@@ -12,7 +14,7 @@ import { ApiError, api } from "@/lib/api";
 import { strategyName } from "@/lib/names";
 import { selectPortfolio, upsertPortfolio } from "@/lib/portfolio";
 import { honeclawAuth, isAdmin } from "@/lib/session";
-import type { AutomationMode, NewPortfolio, Portfolio, User } from "@/lib/types";
+import type { AutomationMode, BrokerName, NewPortfolio, Portfolio, User } from "@/lib/types";
 import "@/styles/portfolios.css";
 import { DEFAULT_CASH, focusInvalid, formatCash, nameProblem, parseCash } from "./form";
 
@@ -38,6 +40,8 @@ export default function NewPortfolioDialog(props: { onClose: () => void; onCreat
   const [cashText, setCashText] = createSignal(formatCash(DEFAULT_CASH));
   const [versionId, setVersionId] = createSignal<number | null>(null);
   const [mode, setMode] = createSignal<AutomationMode>("auto");
+  const [venue, setVenue] = createSignal<BrokerName>("sim");
+  const linked = () => venue() !== "sim";
   const [owner, setOwner] = createSignal("");
   const [touched, setTouched] = createSignal<Partial<Record<Key, boolean>>>({});
   const [submitted, setSubmitted] = createSignal(false);
@@ -52,6 +56,30 @@ export default function NewPortfolioDialog(props: { onClose: () => void; onCreat
   const pickOwner = () => isAdmin() && !honeclawAuth();
   const [users] = createResource(() => (pickOwner() ? api.users().then((r) => r.users) : Promise.resolve([] as User[])).catch(() => [] as User[]));
 
+  // The Longbridge connection, checked when that venue is chosen (this runs the client).
+  const [connection] = createResource(
+    () => (linked() ? venue() : false),
+    (broker) =>
+      api
+        .brokers()
+        .then((r) => r.brokers.find((b) => b.broker === broker && b.mode === "paper") ?? null)
+        .catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }) as const),
+  );
+  const brokerReady = () => {
+    const c = connection.latest;
+    return !!c && "signed_in" in c && c.signed_in && !!c.identity && !c.error;
+  };
+  const brokerAccount = () => {
+    const c = connection.latest;
+    return c && "identity" in c && c.identity ? c.identity.account : "";
+  };
+  const brokerProblem = () => {
+    const c = connection.latest;
+    if (!c || connection.loading) return null;
+    if ("signed_in" in c) return brokerReady() ? null : (c.error ?? t().create.broker_not_ready);
+    return c.error;
+  };
+
   const versions = () => strategy.latest?.versions ?? [];
   const activeId = () => strategy.latest?.active?.id ?? null;
   const chosenVersion = () => versionId() ?? activeId() ?? versions().reduce<number | null>((max, v) => (max === null || v.id > max ? v.id : max), null);
@@ -60,7 +88,7 @@ export default function NewPortfolioDialog(props: { onClose: () => void; onCreat
     const e: Errors = {};
     const problem = nameProblem(name());
     if (problem) e.name = problem === "required" ? t().create.err_name_required : t().create.err_name_long;
-    if (parseCash(cashText()) === null) e.cash = t().create.err_cash;
+    if (!linked() && parseCash(cashText()) === null) e.cash = t().create.err_cash;
     return e;
   });
   const err = (key: Key) => serverErrors()[key] ?? (submitted() || touched()[key] ? errors()[key] : undefined);
@@ -73,16 +101,21 @@ export default function NewPortfolioDialog(props: { onClose: () => void; onCreat
   const submit = async () => {
     setSubmitted(true);
     const cash = parseCash(cashText());
-    if (Object.values(errors()).some(Boolean) || cash === null) {
+    if (Object.values(errors()).some(Boolean) || (!linked() && cash === null)) {
       focusInvalid();
       return;
     }
     const body: NewPortfolio = {
       name: name().trim(),
       description: description().trim(),
-      initial_cash: cash,
       automation_mode: mode(),
     };
+    if (linked()) {
+      body.broker = venue();
+      body.mode = "paper";
+    } else if (cash !== null) {
+      body.initial_cash = cash;
+    }
     const version = chosenVersion();
     if (version !== null) body.strategy_version_id = version;
     if (isAdmin()) body.owner = owner() || null;
@@ -96,9 +129,14 @@ export default function NewPortfolioDialog(props: { onClose: () => void; onCreat
       upsertPortfolio(portfolio);
       selectPortfolio(portfolio.id);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
+      if (error instanceof ApiError && error.status === 409 && /already exists/.test(error.message)) {
         setServerErrors({ name: t().create.err_name_taken });
         focusInvalid();
+        return;
+      }
+      if (error instanceof ApiError && (error.status === 409 || error.status === 503)) {
+        // The broker account cannot be linked (already linked, empty, unreachable…).
+        setFormError(error.message);
         return;
       }
       if (error instanceof ApiError && error.status === 400) {
@@ -123,14 +161,14 @@ export default function NewPortfolioDialog(props: { onClose: () => void; onCreat
   return (
     <Dialog
       title={t().create.title}
-      subtitle={t().create.subtitle}
+      subtitle={linked() ? t().create.broker_subtitle : t().create.subtitle}
       onClose={() => !busy() && props.onClose()}
       footer={
         <>
           <button type="button" class="btn" onClick={() => props.onClose()} disabled={busy()}>
             {c().actions.cancel}
           </button>
-          <button type="button" class="btn primary" onClick={() => void submit()} disabled={busy()}>
+          <button type="button" class="btn primary" onClick={() => void submit()} disabled={busy() || (linked() && !brokerReady())}>
             {busy() ? t().create.creating : t().create.submit}
           </button>
         </>
@@ -182,36 +220,77 @@ export default function NewPortfolioDialog(props: { onClose: () => void; onCreat
           />
         </div>
 
-        <div class="pf-form-grid">
+        <Show when={isAdmin()}>
           <div class="field">
-            <label for="pf-new-cash">{t().create.cash}</label>
-            <div class="input-group pf-money">
-              <span class="addon pre">$</span>
-              <input
-                id="pf-new-cash"
-                class="input num"
-                classList={{ invalid: !!err("cash") }}
-                aria-invalid={err("cash") ? "true" : "false"}
-                inputmode="decimal"
-                value={cashText()}
-                onInput={(e) => {
-                  setCashText(e.currentTarget.value);
-                  clearServer("cash");
-                }}
-                onBlur={() => {
-                  touch("cash");
-                  const value = parseCash(cashText());
-                  if (value !== null) setCashText(formatCash(value));
-                }}
-              />
-              <span class="addon">USD</span>
-            </div>
-            <Show when={err("cash")} fallback={<span class="hint">{t().create.cash_hint}</span>}>
-              <span class="error-text" role="alert">
-                {err("cash")}
-              </span>
+            <span class="field-label">{t().create.venue}</span>
+            <Segmented
+              label={t().create.venue}
+              value={venue()}
+              onChange={(v) => {
+                setVenue(v);
+                setFormError(null);
+              }}
+              options={[
+                { value: "sim" as BrokerName, label: c().venue.sim, title: c().venue.sim_hint },
+                { value: "longbridge" as BrokerName, label: c().venue.longbridge, title: c().venue.longbridge_hint },
+              ]}
+            />
+            <Show when={linked()} fallback={<span class="hint">{c().venue.sim_hint}</span>}>
+              <Show when={!connection.loading} fallback={<span class="hint">{t().create.broker_checking}</span>}>
+                <Show
+                  when={brokerReady()}
+                  fallback={
+                    <div class="callout warn" role="status">
+                      <span>
+                        <strong>{t().create.broker_not_ready}</strong>
+                        <Show when={brokerProblem()}>{(p) => <> · {p()}</>}</Show>
+                        <br />
+                        {t().create.broker_setup}
+                      </span>
+                    </div>
+                  }
+                >
+                  <span class="hint">
+                    {tpl(t().create.broker_ready, { account: brokerAccount() })} · {t().create.broker_cash_hint}
+                  </span>
+                </Show>
+              </Show>
             </Show>
           </div>
+        </Show>
+
+        <div class="pf-form-grid">
+          <Show when={!linked()}>
+            <div class="field">
+              <label for="pf-new-cash">{t().create.cash}</label>
+              <div class="input-group pf-money">
+                <span class="addon pre">$</span>
+                <input
+                  id="pf-new-cash"
+                  class="input num"
+                  classList={{ invalid: !!err("cash") }}
+                  aria-invalid={err("cash") ? "true" : "false"}
+                  inputmode="decimal"
+                  value={cashText()}
+                  onInput={(e) => {
+                    setCashText(e.currentTarget.value);
+                    clearServer("cash");
+                  }}
+                  onBlur={() => {
+                    touch("cash");
+                    const value = parseCash(cashText());
+                    if (value !== null) setCashText(formatCash(value));
+                  }}
+                />
+                <span class="addon">USD</span>
+              </div>
+              <Show when={err("cash")} fallback={<span class="hint">{t().create.cash_hint}</span>}>
+                <span class="error-text" role="alert">
+                  {err("cash")}
+                </span>
+              </Show>
+            </div>
+          </Show>
 
           <div class="field">
             <label for="pf-new-strategy">{t().create.strategy}</label>

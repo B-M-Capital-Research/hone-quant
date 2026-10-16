@@ -116,7 +116,7 @@ Operators can cancel a pending plan, remove individual orders, skip an upcoming 
 
 ## 5. Paper execution
 
-hone-quant has no brokerage integration. Execution is simulated against the latest quote:
+By default execution is simulated against the latest quote:
 
 - Each order re-checks its quote at execution time: it must be fresher than 5 minutes and within
   3% of the price the plan was built on; otherwise the order is not filled (and says why).
@@ -126,6 +126,12 @@ hone-quant has no brokerage integration. Execution is simulated against the late
   value. All costs are configurable.
 - Cash, positions (average cost) and realised P&L are updated in one database transaction per
   plan; dividends are credited on the ex-date and splits adjust share counts and average cost.
+
+A portfolio linked to a **Longbridge paper-trading account** runs the same plans and the same
+quote checks, but its orders go to the broker: day limit orders for whole shares, sells before
+buys, priced 1% through the quote and never beyond the 3% plan tolerance. Fill prices, charges,
+dividends and splits are then the broker's, and the account is kept in step with it. See
+[longbridge.md](longbridge.md).
 
 ## 6. Risk monitoring
 

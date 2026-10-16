@@ -7,13 +7,14 @@ Cloudflare Worker) has its own runbook: [deploy-hone-claw-quant.md](deploy-hone-
 
 hone-quant is a single binary (the web UI is embedded) managed by systemd. It listens on
 `127.0.0.1:8090` only; you reach it through an IAP/SSH tunnel (recommended) or an HTTPS reverse
-proxy. **It only ever trades a simulated paper account** — the code base contains no brokerage
-integration, and no setting can turn one on.
+proxy. **It only ever trades paper accounts**: its own simulator, or a Longbridge paper-trading
+account linked to a portfolio ([longbridge.md](longbridge.md)). No setting turns on live trading.
 
 ```
  your laptop ──IAP tunnel──▶ VM: hone-quant (127.0.0.1:8090, systemd)
                                   ├─▶ PostgreSQL (shared with honeclaw; schema hone_quant)
                                   ├─▶ financialmodelingprep.com (market data, HTTPS)
+                                  ├─▶ longbridge client ─▶ Longbridge OpenAPI (optional, paper account)
                                   └─▶ Telegram / Feishu / WeCom / Slack / Discord / email (notifications)
 ```
 
@@ -127,6 +128,7 @@ for HTTPS, or a source-IP allow-list): a private trading desk does not need to b
 | Reset a password | `sudo …/hq.sh user passwd alice` (signs out their sessions) |
 | Market data now | `sudo …/hq.sh sync` (`--full` re-downloads the whole history) |
 | Universe update | Universe page → "Check for updates", or `sudo …/hq.sh universe sync --apply` |
+| Longbridge sign-in | `sudo …/hq.sh longbridge auth login` once (device flow), then `sudo …/hq.sh longbridge` to check; see [longbridge.md](longbridge.md#setup) |
 | Upgrade | `sudo scripts/deploy.sh <new tarball>` (migrates, switches, health-checks, rolls back on failure) |
 | Roll back | `sudo ln -sfn /opt/hone-quant/releases/<previous> /opt/hone-quant/current && sudo systemctl restart hone-quant` |
 

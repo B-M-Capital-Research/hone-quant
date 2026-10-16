@@ -18,9 +18,9 @@
 
 ---
 
-hone-quant 把 honeclaw 的产业研究变成一套纪律严明、高度自动化的美股组合管理流程。honeclaw 的本体定义了 AI 基础设施投资范围（10 个板块、64 家公司）；hone-quant 在此之上决定仓位，每个交易日生成两份交易计划，在模拟账户中执行，并完整记录策略、计划、订单、成交和每一次人工决策，全程可审计。界面支持简体中文与英文切换，并同时显示新加坡时间和纽约时间。
+hone-quant 把 honeclaw 的产业研究变成一套纪律严明、高度自动化的美股组合管理流程。honeclaw 的本体定义了 AI 基础设施投资范围（10 个板块、64 家公司）；hone-quant 在此之上决定仓位，每个交易日生成两份交易计划，在模拟账户（hone-quant 自己的模拟撮合，或长桥模拟交易账户）中执行，并完整记录策略、计划、订单、成交和每一次人工决策，全程可审计。界面支持简体中文与英文切换，并同时显示新加坡时间和纽约时间。
 
-> **仅限模拟交易。** hone-quant 不包含任何券商接口，无法下达真实订单。本项目内容不构成投资建议。
+> **仅限模拟交易。** hone-quant 自行模拟成交；连接长桥（Longbridge）**模拟交易**账户的组合会把订单发送到该模拟账户。它无法下达真实资金的订单：长桥会拒绝它对实盘账户的请求，代码中也没有任何开启实盘的方式。本项目内容不构成投资建议。
 
 **目录：** [回测表现](#回测表现) · [研究员、本体与 Agent](#研究员本体与-agent) · [主要功能](#主要功能) ·
 [界面截图](#界面截图) · [快速开始](#快速开始) · [一天的工作流程](#一天的工作流程) ·
@@ -72,6 +72,7 @@ flowchart LR
 ## 主要功能
 
 - **一图看全部资产。** 总览页的主图把每家公司在所选区间（1 天至 1 年）的走势画成一根 K 线，按板块分组，下方同时显示当前权重与目标权重；点击任一 K 线即可查看该公司的 K 线图、均线、成交量和本账户的成交点。
+- **长桥模拟交易。** 通过开源的 `longbridge` 命令行客户端，把组合连接到长桥模拟交易账户：交易计划以当日限价单发送到券商（先卖后买，买单按券商报告的现金确定数量），成交和费用读回后各记一次，现金和持仓与券商同步，每一处差异都写入审计日志。详见 [docs/longbridge.zh.md](docs/longbridge.zh.md)。
 - **相互独立的组合。** 可以同时运行多个模拟组合，用于不同的初始资金，或由不同的人各自管理自己的持仓。每个组合都有自己的持仓、现金、计划、成交、绩效、自动化模式，以及从共享策略库中选定的当前策略版本；投资范围与本体为所有组合共享。成员只能创建和管理自己的组合，管理员可以看到全部组合，只读用户只能查看。
 - **每天两份计划，自动执行。** 开盘计划（开盘后 30 分钟）和收盘前计划（收盘前 3 小时），各有复核窗口。可全自动执行、人工确认或暂停；随时可以取消计划、移除单笔订单，或取消当日剩余交易。
 - **透明的策略。** 每份计划都能说明每个目标权重的由来。策略以不可修改的版本保存并记录启用历史，内置四套预设。
@@ -228,6 +229,8 @@ HONE_QUANT_DB_SCHEMA=hone_quant_rehearsal HONE_QUANT_DEV_CLOCK=2026-10-05T13:55:
 | `HONE_QUANT_AUTH_MODE` | `local` | `honeclaw`：不使用本地账号，只允许 honeclaw 管理员，在服务端校验（`HONE_QUANT_HONECLAW_*`） |
 | `HONE_QUANT_ORIGIN_TOKEN` | —— | 前置代理必须以 `X-Hone-Quant-Origin-Token` 发送的密钥，否则一律返回 404 |
 | `HONE_QUANT_DEV_CLOCK` | —— | 仅演示模式：让时钟从指定时刻开始（RFC 3339） |
+| `HONE_QUANT_LONGBRIDGE_BIN` | `longbridge` | 长桥命令行客户端，供连接长桥模拟账户的组合使用 |
+| `HONE_QUANT_LONGBRIDGE_HOME` | 服务的 `HOME` | 该客户端保存登录信息的位置（`$HOME/.longbridge`） |
 
 全部变量的说明见 [`deploy/runtime.env.example`](deploy/runtime.env.example)。
 
@@ -243,6 +246,8 @@ hone-quant fmp-check [--symbol NVDA]    逐一检查 hone-quant 用到的 FMP �
 hone-quant sync [--full]                立即拉取行情
 hone-quant universe sync [--apply]      对比 honeclaw 本体与数据库中的投资范围
 hone-quant universe build --edits <honeclaw>/data/industry_map/edits.json
+hone-quant longbridge [参数…]           以与服务器相同的方式运行长桥客户端，例如 `auth login`；
+                                        不带参数时检查连接、账户、现金和持仓
 ```
 
 从源码运行时在前面加 `cargo run --release -p quant-server --`。在部署好的主机上，用服务的用户和环境运行：`sudo /opt/hone-quant/current/scripts/hq.sh <命令>`。
@@ -258,7 +263,7 @@ hone-quant universe build --edits <honeclaw>/data/industry_map/edits.json
 
 **有意不做的事**
 
-- **实盘交易**——没有券商接口，也没有任何设置可以开启。
+- **实盘交易**——组合只能连接长桥*模拟*账户；没有注册实盘客户端，也没有任何设置可以开启（见 [docs/longbridge.zh.md](docs/longbridge.zh.md#实盘交易未开启)）。
 - **选股**——投资范围来自 honeclaw 本体，hone-quant 只决定仓位大小。
 - **日内信号**——策略使用日收盘价加当前报价；回测使用日线。
 
@@ -266,7 +271,7 @@ hone-quant universe build --edits <honeclaw>/data/industry_map/edits.json
 
 ```text
 crates/quant-core     策略、调仓、成本、时间表、绩效指标和回测：纯 Rust，无 I/O
-crates/quant-server   axum API、调度器、模拟券商、FMP 客户端、通知、PostgreSQL 迁移
+crates/quant-server   axum API、调度器、模拟券商、长桥客户端、FMP 客户端、通知、PostgreSQL 迁移
 web/                  SolidJS + ECharts 网页界面（中/英），嵌入服务端可执行文件
 config/               由 honeclaw 本体生成的内置投资范围快照
 deploy/               systemd 单元、runtime.env 模板、PostgreSQL 初始化脚本、Caddy 示例与
@@ -300,6 +305,7 @@ cargo run -p quant-server
 
 - [策略与交易方法](docs/methodology.zh.md)（[English](docs/methodology.md)）
 - [系统架构](docs/architecture.md)
+- [通过长桥模拟账户交易](docs/longbridge.zh.md)（[English](docs/longbridge.md)）
 - [GCE 部署手册](docs/deployment-gce.zh.md)（[English](docs/deployment-gce.md)）
 - [hone-claw.com/quant 生产部署](docs/deploy-hone-claw-quant.md)（英文）及其 [Cloudflare Worker](deploy/cloudflare/quant-proxy/README.md)
 - 配置项说明：[`deploy/runtime.env.example`](deploy/runtime.env.example)

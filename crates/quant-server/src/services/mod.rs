@@ -3,6 +3,9 @@
 pub mod backtests;
 pub mod bootstrap;
 pub mod broker;
+pub mod brokerage;
+#[cfg(test)]
+mod brokerage_tests;
 pub mod marketdata;
 pub mod planner;
 pub mod portfolio;

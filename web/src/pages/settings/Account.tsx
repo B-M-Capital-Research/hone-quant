@@ -1,4 +1,5 @@
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { VenueChip } from "@/components/PortfolioSwitcher";
 import { Dialog, Pct, toast, toastError } from "@/components/ui";
 import { tpl } from "@/i18n";
 import { common } from "@/i18n/common";
@@ -7,7 +8,7 @@ import { ApiError, api } from "@/lib/api";
 import { fmtDate, fmtDateTime, fmtMoney, toNumber } from "@/lib/format";
 import { canTrade, currentPortfolio, onPortfolioEvent } from "@/lib/portfolio";
 import { refreshMarket } from "@/lib/session";
-import type { Account } from "@/lib/types";
+import type { Account, SyncReport } from "@/lib/types";
 import { normalizeNumText } from "./num";
 import { Field, Gate, SIcon, createLoader, focusFirstInvalid } from "./shared";
 
@@ -33,8 +34,15 @@ export default function AccountSection() {
         return (
           <>
             <Show when={active()}>{(a) => <CurrentCard account={a()} nav={dash.value()?.valuation.nav ?? null} ret={dash.value()?.valuation.total_return ?? null} />}</Show>
+            <Show when={active()?.broker !== "sim" ? active() : null}>{(a) => <BrokerCard account={a()} onSynced={reload} />}</Show>
             <HistoryCard accounts={archived()} />
-            <Show when={active()}>{(a) => <DangerZone account={a()} onDone={reload} />}</Show>
+            <Show when={active()}>
+              {(a) => (
+                <Show when={a().broker === "sim"} fallback={<BrokerResetNote />}>
+                  <DangerZone account={a()} onDone={reload} />
+                </Show>
+              )}
+            </Show>
           </>
         );
       }}
@@ -44,14 +52,16 @@ export default function AccountSection() {
 
 function CurrentCard(props: { account: Account; nav: number | null; ret: number | null }) {
   const t = settingsText;
+  const linked = () => props.account.broker !== "sim";
   return (
     <div class="card">
       <div class="card-head">
         <div class="head-text">
           <h2>{t().account.current_title}</h2>
-          <div class="sub">{t().account.current_sub}</div>
+          <div class="sub">{linked() ? t().account.current_sub_broker : t().account.current_sub}</div>
         </div>
         <span class="spacer" />
+        <VenueChip account={props.account} />
         <span class="chip orange">
           <SIcon name="shield" size={12} />
           {common().app.paper}
@@ -85,6 +95,16 @@ function CurrentCard(props: { account: Account; nav: number | null; ret: number 
           </dd>
           <dt>{t().account.mode}</dt>
           <dd>{t().account.mode_paper}</dd>
+          <dt>{t().account.venue}</dt>
+          <dd>{linked() ? common().venue.longbridge : common().venue.sim}</dd>
+          <Show when={props.account.broker_account}>
+            {(id) => (
+              <>
+                <dt>{t().account.broker_account}</dt>
+                <dd class="mono small">{id()}</dd>
+              </>
+            )}
+          </Show>
           <dt>{t().account.currency}</dt>
           <dd>{props.account.base_currency}</dd>
           <dt>{t().account.inception}</dt>
@@ -92,6 +112,137 @@ function CurrentCard(props: { account: Account; nav: number | null; ret: number 
           <dt>{t().account.created}</dt>
           <dd class="num">{fmtDateTime(props.account.created_at)}</dd>
         </dl>
+      </div>
+    </div>
+  );
+}
+
+/** A broker-linked account: the connection's last synchronisation and a way to run one now. */
+function BrokerCard(props: { account: Account; onSynced: () => Promise<void> }) {
+  const t = settingsText;
+  const [busy, setBusy] = createSignal(false);
+  const report = () => props.account.sync_status as Partial<SyncReport>;
+  const failed = () => report().ok === false;
+  const sync = async () => {
+    setBusy(true);
+    try {
+      const { report: r } = await api.syncAccount();
+      const n = r.adjustments.length;
+      toast(t().account.sync_done, n ? tpl(t().account.sync_done_changes, { n }) : t().account.sync_done_none, "success");
+      await props.onSynced();
+    } catch (error) {
+      toastError(error);
+      await props.onSynced();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const item = (name: string) => (name === "cash" ? t().account.adjustment_cash : name);
+  return (
+    <div class="card">
+      <div class="card-head">
+        <div class="head-text">
+          <h2>{t().account.broker_title}</h2>
+          <div class="sub">{t().account.broker_sub}</div>
+        </div>
+        <span class="spacer" />
+        <Show when={report().at}>
+          <span class={`chip ${failed() ? "red" : "green"}`}>
+            <span class="dot" />
+            {failed() ? t().account.sync_failed : t().account.sync_ok}
+          </span>
+        </Show>
+        <Show when={canTrade()} fallback={<span class="muted xs">{t().account.viewer_sync_note}</span>}>
+          <button type="button" class="btn sm" disabled={busy()} onClick={() => void sync()}>
+            <SIcon name="refresh" size={14} />
+            {busy() ? t().account.syncing : t().account.sync_now}
+          </button>
+        </Show>
+      </div>
+      <div class="card-body stack" style={{ gap: "14px" }}>
+        <Show when={failed() && report().error}>
+          <div class="callout critical" role="alert">
+            <SIcon name="alert" size={16} />
+            <span style={{ "white-space": "pre-line" }}>{report().error}</span>
+          </div>
+        </Show>
+        <Show when={report().deferred}>
+          <div class="callout info">
+            <SIcon name="clock" size={16} />
+            <span>{t().account.sync_deferred}</span>
+          </div>
+        </Show>
+        <dl class="kv settings-kv">
+          <dt>{t().account.synced_at}</dt>
+          <dd class="num">{props.account.synced_at ? fmtDateTime(props.account.synced_at) : t().account.never_synced}</dd>
+          <Show when={report().cash}>
+            {(cash) => (
+              <>
+                <dt>{t().account.broker_cash}</dt>
+                <dd class="num">
+                  {fmtMoney(cash().total)}
+                  <span class="muted small">
+                    {" · "}
+                    {t().account.broker_available} {fmtMoney(cash().available)} · {t().account.broker_frozen} {fmtMoney(cash().frozen)} · {t().account.broker_settling}{" "}
+                    {fmtMoney(cash().settling)}
+                  </span>
+                </dd>
+              </>
+            )}
+          </Show>
+        </dl>
+        <Show when={(report().adjustments ?? []).length > 0}>
+          <div>
+            <h3 class="broker-heading">{t().account.adjustments_title}</h3>
+            <ul class="broker-list">
+              <For each={report().adjustments ?? []}>
+                {(a) => (
+                  <li class="num">
+                    {item(a.item)}: {a.item === "cash" ? fmtMoney(a.before) : toNumber(a.before)} → {a.item === "cash" ? fmtMoney(a.after) : toNumber(a.after)}
+                  </li>
+                )}
+              </For>
+            </ul>
+          </div>
+        </Show>
+        <Show when={(report().unmanaged ?? []).length > 0}>
+          <div>
+            <h3 class="broker-heading">{t().account.unmanaged_title}</h3>
+            <p class="muted xs">{t().account.unmanaged_hint}</p>
+            <ul class="broker-list">
+              <For each={report().unmanaged ?? []}>
+                {(h) => (
+                  <li>
+                    <span class="mono">{h.broker_symbol}</span> {h.name} · <span class="num">{toNumber(h.qty)}</span> · {h.currency}
+                  </li>
+                )}
+              </For>
+            </ul>
+          </div>
+        </Show>
+        <Show when={(report().warnings ?? []).length > 0}>
+          <div>
+            <h3 class="broker-heading">{t().account.warnings_title}</h3>
+            <ul class="broker-list">
+              <For each={report().warnings ?? []}>{(w) => <li>{w}</li>}</For>
+            </ul>
+          </div>
+        </Show>
+      </div>
+    </div>
+  );
+}
+
+/** Broker-linked accounts follow the broker and are not reset here. */
+function BrokerResetNote() {
+  const t = settingsText;
+  return (
+    <div class="card">
+      <div class="card-head">
+        <div class="head-text">
+          <h2>{t().account.broker_reset_title}</h2>
+          <div class="sub">{t().account.broker_reset_body}</div>
+        </div>
       </div>
     </div>
   );

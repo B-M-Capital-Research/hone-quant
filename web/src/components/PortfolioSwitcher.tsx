@@ -13,7 +13,7 @@ import { fmtMoney } from "@/lib/format";
 import { canCreate, currentPortfolio, loadPortfolios, noPortfolio, portfolios, portfoliosError, selectPortfolio } from "@/lib/portfolio";
 import { ownerKind } from "@/lib/portfolio-select";
 import { me } from "@/lib/session";
-import type { AutomationMode, Portfolio } from "@/lib/types";
+import type { Account, AutomationMode, Portfolio } from "@/lib/types";
 import { Icon } from "./Icon";
 import { Pct } from "./ui";
 
@@ -25,6 +25,18 @@ export function ModeChip(props: { mode: AutomationMode }) {
       <Icon name={props.mode === "paused" ? "pause" : "zap"} size={11} />
       {common().mode[props.mode]}
     </span>
+  );
+}
+
+/** Where a broker-linked portfolio trades (nothing for the simulator). */
+export function VenueChip(props: { account: Account | null | undefined }) {
+  return (
+    <Show when={props.account && props.account.broker !== "sim"}>
+      <span class="chip blue" title={common().venue.longbridge_hint}>
+        <Icon name="send" size={11} />
+        {common().venue.longbridge_short}
+      </span>
+    </Show>
   );
 }
 
@@ -152,6 +164,7 @@ export function PortfolioSwitcher(props: { onCreate: () => void }) {
                       <span class="pf-item-top">
                         <span class="pf-item-name">{p.name}</span>
                         <ModeChip mode={p.effective_mode} />
+                        <VenueChip account={p.account} />
                       </span>
                       <span class="pf-item-meta">
                         <span class="pf-item-owner">{ownerLabel(p)}</span>

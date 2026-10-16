@@ -4,6 +4,7 @@
 #   sudo /opt/hone-quant/current/scripts/hq.sh user add alice --role viewer
 #   sudo /opt/hone-quant/current/scripts/hq.sh fmp-check
 #   sudo /opt/hone-quant/current/scripts/hq.sh sync --full
+#   sudo /opt/hone-quant/current/scripts/hq.sh longbridge auth login   # sign the server in to Longbridge
 #
 # Interactive when run from a terminal (password prompts work); otherwise stdin is piped through.
 set -euo pipefail

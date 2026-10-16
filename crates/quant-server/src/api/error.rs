@@ -45,6 +45,31 @@ impl From<anyhow::Error> for ApiError {
     }
 }
 
+impl From<crate::brokers::BrokerError> for ApiError {
+    fn from(error: crate::brokers::BrokerError) -> Self {
+        use crate::brokers::BrokerError;
+        match error {
+            BrokerError::WrongAccount(message) | BrokerError::Refused(message) => {
+                ApiError::Conflict(message)
+            }
+            other => ApiError::Unavailable(other.to_string()),
+        }
+    }
+}
+
+impl From<crate::services::brokerage::LinkError> for ApiError {
+    fn from(error: crate::services::brokerage::LinkError) -> Self {
+        use crate::services::brokerage::LinkError;
+        match error {
+            LinkError::LiveDisabled => ApiError::BadRequest(error.to_string()),
+            LinkError::NotConfigured(_) => ApiError::Unavailable(error.to_string()),
+            LinkError::Broker(broker) => broker.into(),
+            LinkError::Empty | LinkError::AlreadyLinked(_) => ApiError::Conflict(error.to_string()),
+            LinkError::Other(other) => ApiError::Internal(other),
+        }
+    }
+}
+
 impl From<tokio_postgres::Error> for ApiError {
     fn from(error: tokio_postgres::Error) -> Self {
         ApiError::Internal(error.into())

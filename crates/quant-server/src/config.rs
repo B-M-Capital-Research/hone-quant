@@ -18,6 +18,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, NaiveDate, Utc};
 use sha2::{Digest, Sha256};
 
+use crate::brokers::longbridge::LongbridgeConfig;
 use crate::market::DataSource;
 use crate::market::fmp::{ApiMode, FmpConfig};
 
@@ -115,6 +116,8 @@ pub struct Config {
     /// `X-Hone-Quant-Origin-Token` (added by the Cloudflare Worker), so the origin cannot be
     /// used directly.
     pub origin_token: Option<String>,
+    /// The Longbridge command-line client portfolios can be linked to.
+    pub longbridge: LongbridgeConfig,
 }
 
 /// How operators sign in.
@@ -229,6 +232,17 @@ fn origin_token() -> Result<Option<String>> {
             "HONE_QUANT_ORIGIN_TOKEN must be at least 32 printable characters (e.g. openssl rand -hex 32)"
         ),
     }
+}
+
+/// `HONE_QUANT_LONGBRIDGE_BIN` (default `longbridge` on `PATH`) and `HONE_QUANT_LONGBRIDGE_HOME`
+/// (default: the server's own `HOME`).
+pub fn longbridge_config() -> LongbridgeConfig {
+    let mut config = LongbridgeConfig::default();
+    if let Some(bin) = var("HONE_QUANT_LONGBRIDGE_BIN") {
+        config.bin = PathBuf::from(bin);
+    }
+    config.home = var("HONE_QUANT_LONGBRIDGE_HOME").map(PathBuf::from);
+    config
 }
 
 fn var(name: &str) -> Option<String> {
@@ -589,6 +603,7 @@ impl Config {
             base_path: normalize_base_path(&var("HONE_QUANT_BASE_PATH").unwrap_or_default())?,
             auth: auth_mode()?,
             origin_token: origin_token()?,
+            longbridge: longbridge_config(),
         })
     }
 }

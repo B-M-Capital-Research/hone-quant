@@ -13,7 +13,7 @@ import { useQuery } from "./query";
 import { ExportButton, Summary, type TabProps, Toolbar, csvName, exportRows, truncationNote } from "./trades-common";
 import { fetchAll, num } from "./util";
 
-const STATUSES: OrderStatus[] = ["planned", "filled", "partially_filled", "rejected", "expired", "cancelled", "skipped"];
+const STATUSES: OrderStatus[] = ["planned", "submitted", "filled", "partially_filled", "rejected", "expired", "cancelled", "skipped"];
 const CAP = 10_000;
 
 export function OrdersTab(props: TabProps) {
@@ -65,7 +65,7 @@ export function OrdersTab(props: TabProps) {
         s.sells += 1;
         s.sellValue += value;
       }
-      if (o.status === "planned") s.planned += 1;
+      if (o.status === "planned" || o.status === "submitting" || o.status === "submitted") s.planned += 1;
       else if (o.status === "filled" || o.status === "partially_filled") s.done += 1;
       else if (o.status === "rejected") s.rejected += 1;
       else if (o.status === "expired") s.expired += 1;
@@ -94,6 +94,7 @@ export function OrdersTab(props: TabProps) {
     const header = [
       tc.id, tc.plan_id, cols.date, tc.slot, cols.symbol, tc.name, cols.side, cols.reason, cols.qty, tc.filled_qty, cols.ref_price,
       cols.ref_value, tc.weight_before, tc.weight_target, tc.weight_after, cols.status, tc.status_reason, tc.created_at,
+      tc.broker_order_id, tc.broker_status,
     ];
     const reasons = c().order_status_reason as Record<string, string>;
     const rows = scoped().map((o) => [
@@ -115,6 +116,8 @@ export function OrdersTab(props: TabProps) {
       c().order_status[o.status],
       o.status_reason ? reasons[o.status_reason] ?? o.status_reason : "",
       o.created_at,
+      o.broker_order_id ?? "",
+      o.broker_status ?? "",
     ]);
     exportRows(csvName("orders", f()), header, rows, data.truncated ? data.rows.length : null);
   };
@@ -299,6 +302,13 @@ function OrderRow(p: { order: OrderWithPlan; props: TabProps }) {
       </td>
       <td>
         <OrderStatusChip status={o.status} reason={o.status_reason} />
+        <Show when={o.broker_order_id}>
+          {(id) => (
+            <div class="act-sub mono" title={o.broker_message ?? o.broker_status ?? undefined}>
+              {id()}
+            </div>
+          )}
+        </Show>
       </td>
       <td class="r">
         <PlanLink id={o.plan_id} />

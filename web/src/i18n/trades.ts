@@ -150,6 +150,9 @@ const zh = {
     quote_ts: "报价时间 (UTC)",
     ref_type: "关联类型",
     ref_id: "关联编号",
+    broker_order_id: "券商订单号",
+    broker_status: "券商状态",
+    broker_trade_id: "券商成交编号",
   },
 };
 
@@ -303,6 +306,9 @@ const en: typeof zh = {
     quote_ts: "Quote time (UTC)",
     ref_type: "Reference type",
     ref_id: "Reference ID",
+    broker_order_id: "Broker order ID",
+    broker_status: "Broker status",
+    broker_trade_id: "Broker trade ID",
   },
 };
 

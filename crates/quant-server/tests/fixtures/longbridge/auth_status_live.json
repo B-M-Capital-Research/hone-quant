@@ -1,0 +1,4 @@
+{
+  "token": {"status": "valid", "logged_in_at": 1760600000, "dc_region": "ap", "path": "/root/.longbridge/openapi/cli-auth"},
+  "account": {"member_id": 3162001, "activated_packages": [], "unactivated_packages": [], "account_no": "L8123456", "account_type": "Margin", "account_channel": "lb", "name": "Example"}
+}

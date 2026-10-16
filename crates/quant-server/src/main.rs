@@ -11,6 +11,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use quant_core::calendar::MarketCalendar;
+use quant_server::brokers::longbridge::LongbridgeCli;
+use quant_server::brokers::{AccountMode, Broker, Brokers};
 use quant_server::config::{Config, LogFormat};
 use quant_server::market::demo::{DemoInstrument, DemoMarket};
 use quant_server::market::fmp::FmpClient;
@@ -58,6 +60,14 @@ enum Command {
         /// Re-download the full history window instead of topping it up.
         #[arg(long)]
         full: bool,
+    },
+    /// Run the Longbridge command-line client exactly as the server runs it (same home
+    /// directory, paper-trading guard on), e.g. `hone-quant longbridge auth login` to sign the
+    /// server in. Without arguments: check the connection.
+    #[command(disable_help_flag = true)]
+    Longbridge {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 }
 
@@ -182,6 +192,10 @@ async fn build_state(config: Config) -> Result<Arc<AppState>> {
         .user_agent(concat!("hone-quant/", env!("CARGO_PKG_VERSION")))
         .build()?;
     let started_at = clock();
+    let brokers = Brokers::default().with(Arc::new(LongbridgeCli::new(
+        config.longbridge.clone(),
+        AccountMode::Paper,
+    )));
     let honeclaw = match &config.auth {
         config::AuthMode::Local => None,
         config::AuthMode::Honeclaw(settings) => {
@@ -197,6 +211,7 @@ async fn build_state(config: Config) -> Result<Arc<AppState>> {
         config: Arc::new(config),
         pool,
         market,
+        brokers,
         calendar: Arc::new(calendar),
         clock,
         events,
@@ -262,11 +277,72 @@ async fn serve(config: Config) -> Result<()> {
     Ok(())
 }
 
+/// `hone-quant longbridge [ARGS…]`: runs the client interactively with the server's environment,
+/// or (without arguments) reports what the server would see.
+async fn longbridge(
+    config: quant_server::brokers::longbridge::LongbridgeConfig,
+    args: &[String],
+) -> Result<()> {
+    if args.is_empty() {
+        let client = LongbridgeCli::new(config.clone(), AccountMode::Paper);
+        let status = client.status().await;
+        println!(
+            "client:    {} ({})",
+            status.client.as_deref().unwrap_or("not found"),
+            config.bin.display()
+        );
+        if let Some(home) = &config.home {
+            println!("home:      {}", home.display());
+        }
+        println!("signed in: {}", if status.signed_in { "yes" } else { "no" });
+        if let Some(identity) = &status.identity {
+            println!(
+                "account:   {} ({}, {})",
+                identity.account,
+                identity.channel,
+                identity.mode.as_str()
+            );
+            match client.snapshot().await {
+                Ok(snapshot) => {
+                    for cash in &snapshot.cash {
+                        println!(
+                            "cash:      {} {} (available {}, frozen {}, settling {})",
+                            cash.currency, cash.total, cash.available, cash.frozen, cash.settling
+                        );
+                    }
+                    for holding in &snapshot.holdings {
+                        println!(
+                            "holding:   {} {} @ {}",
+                            holding.broker_symbol, holding.qty, holding.cost_price
+                        );
+                    }
+                }
+                Err(error) => println!("snapshot:  failed: {error}"),
+            }
+        }
+        if let Some(error) = &status.error {
+            bail!("{error}");
+        }
+        return Ok(());
+    }
+    let status = LongbridgeCli::command(&config, AccountMode::Paper)
+        .args(args)
+        .status()
+        .await
+        .with_context(|| format!("cannot run {}", config.bin.display()))?;
+    std::process::exit(status.code().unwrap_or(1));
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     config::load_dotenv();
     let cli = Cli::parse();
     let command = cli.command.unwrap_or(Command::Serve);
+
+    // The Longbridge client needs only its own settings (no database).
+    if let Command::Longbridge { args } = &command {
+        return longbridge(config::longbridge_config(), args).await;
+    }
 
     // Offline commands that need no configuration.
     if let Command::Universe {
@@ -414,7 +490,8 @@ async fn main() -> Result<()> {
         }
         Command::Universe {
             command: UniverseCommand::Build { .. },
-        } => unreachable!("handled above"),
+        }
+        | Command::Longbridge { .. } => unreachable!("handled above"),
         Command::FmpCheck { symbol } => {
             let client = FmpClient::new(config.market.fmp.clone())?;
             println!(

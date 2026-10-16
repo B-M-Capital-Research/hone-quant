@@ -1,0 +1,17 @@
+{
+  "token": {
+    "status": "valid",
+    "logged_in_at": 1760600000,
+    "dc_region": "ap",
+    "path": "/var/lib/hone-quant/.longbridge/openapi/cli-auth"
+  },
+  "account": {
+    "member_id": 3162001,
+    "activated_packages": [],
+    "unactivated_packages": [],
+    "account_no": null,
+    "account_type": null,
+    "account_channel": "lb_papertrading",
+    "name": null
+  }
+}
