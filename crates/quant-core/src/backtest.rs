@@ -267,6 +267,7 @@ pub fn run_backtest(
         }
     }
     let no_flags = vec![false; n];
+    let no_views = BTreeMap::new();
 
     let mut points = Vec::with_capacity(t1 - t0 + 1);
     let mut trades = Vec::new();
@@ -325,6 +326,8 @@ pub fn run_backtest(
                         current_weights: &current_weights,
                         excluded: &no_flags,
                         frozen: &no_flags,
+                        // No point-in-time AI views exist for the past: backtests run without.
+                        sector_views: &no_views,
                     },
                 );
                 let tradable: Vec<bool> =
