@@ -118,6 +118,8 @@ pub struct AiConfig {
     pub llm: Option<LlmConfig>,
     /// honeclaw's full industry ontology (`industry-map.json`): a local path or an http(s) URL.
     pub ontology: String,
+    /// honeclaw's live edit log (`data/industry_map/edits.json`), replayed onto the ontology.
+    pub ontology_edits: Option<String>,
 }
 
 impl Default for AiConfig {
@@ -125,6 +127,7 @@ impl Default for AiConfig {
         Self {
             llm: None,
             ontology: crate::universe::ONTOLOGY_URL.to_string(),
+            ontology_edits: None,
         }
     }
 }
@@ -570,6 +573,7 @@ fn ai_config() -> Result<AiConfig> {
         llm: route,
         ontology: var("HONE_QUANT_ONTOLOGY")
             .unwrap_or_else(|| crate::universe::ONTOLOGY_URL.into()),
+        ontology_edits: var("HONE_QUANT_ONTOLOGY_EDITS"),
     })
 }
 

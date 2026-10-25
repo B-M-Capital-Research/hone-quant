@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::llm::truncate;
+use super::ontology::parse_as_of;
 
 /// Bumped whenever the prompt or the validation rules change; stored with every view.
 pub const PROMPT_VERSION: &str = "sector-view/1";
@@ -190,10 +191,7 @@ fn opinion(item: &Value, sector: &str, as_of: NaiveDate) -> SectorOpinion {
             dropped = true;
             continue;
         }
-        let date = e
-            .get("date")
-            .and_then(Value::as_str)
-            .and_then(|d| NaiveDate::parse_from_str(d.trim(), "%Y-%m-%d").ok());
+        let date = e.get("date").and_then(Value::as_str).and_then(parse_as_of);
         if date.is_some_and(|d| d > as_of) {
             future = true;
             continue;

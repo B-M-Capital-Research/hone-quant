@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::ai::material::{self, SectorMembers};
+use crate::ai::ontology;
 use crate::ai::view::{self, PROMPT_VERSION, ViewOutput};
 use crate::market::{EarningsReport, MarketError};
 use crate::state::{AppState, ServerEvent};
@@ -126,7 +127,20 @@ pub async fn generate(state: &Arc<AppState>, actor: &str) -> Result<Generated> {
 
     let mut notes = Vec::new();
     let ontology = match universe::read_json(&state.config.ai.ontology).await {
-        Ok(ontology) => material::ontology_digest(&ontology, &sectors, as_of),
+        Ok(mut ontology) => {
+            // honeclaw's live edits carry the newest research; without them the base file is
+            // still complete, only older.
+            let mut applied = None;
+            if let Some(location) = &state.config.ai.ontology_edits {
+                match universe::read_json(location).await {
+                    Ok(edits) => applied = Some(ontology::apply_edits(&mut ontology, &edits)),
+                    Err(error) => notes.push(format!("ontology edits unavailable: {error:#}")),
+                }
+            }
+            let mut digest = material::ontology_digest(&ontology, &sectors, as_of);
+            digest["edits_applied"] = json!(applied);
+            digest
+        }
         Err(error) => {
             notes.push(format!("ontology unavailable: {error:#}"));
             Value::Null

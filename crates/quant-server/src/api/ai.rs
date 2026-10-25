@@ -61,6 +61,7 @@ pub async fn overview(
         "endpoint": llm.map(|l| endpoint_host(&l.base_url)),
         "origin": llm.map(|l| &l.origin),
         "ontology": state.config.ai.ontology,
+        "ontology_edits": state.config.ai.ontology_edits,
         "running": ai_view::running(),
         "attempts_24h": store::attempts_since(&client, since).await?,
         "max_attempts_24h": ai_view::MAX_ATTEMPTS_PER_DAY,

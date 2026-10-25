@@ -12,6 +12,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::llm::truncate;
+use super::ontology::parse_as_of;
 use crate::market::EarningsReport;
 
 /// Material older than this (days before `as_of`) is marked stale.
@@ -39,8 +40,9 @@ fn cut(value: &Value, key: &str, max: usize) -> String {
     truncate(&text(value, key), max)
 }
 
+/// honeclaw writes dates to the day or to the month (`2026-10` = the first of October).
 fn date_of(value: &Value, key: &str) -> Option<NaiveDate> {
-    NaiveDate::parse_from_str(&text(value, key), "%Y-%m-%d").ok()
+    parse_as_of(&text(value, key))
 }
 
 fn list<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
