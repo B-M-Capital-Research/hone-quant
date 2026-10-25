@@ -1232,6 +1232,12 @@ mod tests {
     /// FNV-1a over the exact bits of the target weights and statuses for every preset, with and
     /// without holdings, exclusions and locks. Recorded before the plan explanations were added:
     /// diagnostics may grow, the weights may not change.
+    /// A weight to twelve decimals: libm's `pow`, `exp` and `sin` may differ in the last bit
+    /// between platforms (macOS and glibc), which must not change the fingerprint.
+    fn quantized(x: f64) -> u64 {
+        (x * 1e12).round() as i64 as u64
+    }
+
     #[test]
     fn target_weights_are_unchanged_by_diagnostics() {
         let fixture = universe();
@@ -1249,14 +1255,14 @@ mod tests {
                 fixture.run_with(&p.params, &["MU"], &["VST"], &held),
             ] {
                 for (w, a) in result.weights.iter().zip(&result.assets) {
-                    feed(w.to_bits());
+                    feed(quantized(*w));
                     feed(a.status as u64);
                 }
-                feed(result.exposure_target.to_bits());
-                feed(result.breadth.unwrap_or(-1.0).to_bits());
+                feed(quantized(result.exposure_target));
+                feed(quantized(result.breadth.unwrap_or(-1.0)));
             }
         }
-        assert_eq!(hash, 0x5d20_0d77_be04_4625, "fingerprint {hash:#x}");
+        assert_eq!(hash, 0x5e95_a6ef_d4d1_f122, "fingerprint {hash:#x}");
     }
 
     #[test]
