@@ -5,14 +5,15 @@
  */
 import type { FieldError, StrategyParams } from "@/lib/types";
 
-export type GroupId = "universe" | "exposure" | "sector" | "asset" | "rebalance";
+export type GroupId = "universe" | "exposure" | "sector" | "asset" | "rebalance" | "ai";
 
 /**
  * - `int`: whole trading days; `pct`: fraction shown as a percentage; `pp`: fraction shown as
  *   percentage points; `num`: plain decimal (exponents); `mult`: multiplier; `money`: USD;
- * - `optpct`: nullable percentage (volatility target); `bool`; `method`; `budgets` (map).
+ * - `optpct`: nullable percentage (volatility target); `bool`; `method`; `budgets` (map);
+ * - `aimode`: off / shadow / live for the AI sector view.
  */
-export type FieldKind = "int" | "pct" | "pp" | "num" | "mult" | "money" | "optpct" | "bool" | "method" | "budgets";
+export type FieldKind = "int" | "pct" | "pp" | "num" | "mult" | "money" | "optpct" | "bool" | "method" | "budgets" | "aimode";
 
 export interface FieldDef {
   path: string;
@@ -25,7 +26,7 @@ export interface FieldDef {
   zeroOff?: boolean;
 }
 
-export const GROUPS: GroupId[] = ["universe", "exposure", "sector", "asset", "rebalance"];
+export const GROUPS: GroupId[] = ["universe", "exposure", "sector", "asset", "rebalance", "ai"];
 
 export const FIELDS: FieldDef[] = [
   { path: "universe.min_history_days", group: "universe", kind: "int", min: 20, max: 756 },
@@ -64,6 +65,11 @@ export const FIELDS: FieldDef[] = [
   { path: "rebalance.min_trade_value", group: "rebalance", kind: "money", min: 0, max: 1_000_000 },
   { path: "rebalance.max_turnover", group: "rebalance", kind: "pct", min: 0.01, max: 2 },
   { path: "rebalance.fractional_shares", group: "rebalance", kind: "bool" },
+
+  { path: "ai.mode", group: "ai", kind: "aimode" },
+  { path: "ai.max_tilt", group: "ai", kind: "pct", min: 0, max: 0.5 },
+  { path: "ai.min_confidence", group: "ai", kind: "pct", min: 0, max: 1 },
+  { path: "ai.max_age_days", group: "ai", kind: "int", min: 1, max: 30 },
 ];
 
 export const FIELD_BY_PATH: Record<string, FieldDef> = Object.fromEntries(FIELDS.map((f) => [f.path, f]));

@@ -49,7 +49,17 @@ pub async fn preview(
     let params = StrategyParams::from_json_strict(&body.params).map_err(ApiError::Validation)?;
     let today = MarketCalendar::local_date(state.now());
     let proposal = planner::build_proposal(&state, ctx.account(), &params, today).await?;
+    // The same explanation a plan gets, against the portfolio's latest plan.
+    let active = {
+        let client = state.pool.get().await?;
+        strategy_store::active_version(&client, ctx.account().id).await?
+    };
+    let diagnostics = proposal.diagnostics(&params, active.as_ref());
+    let explanation = proposal
+        .explain(&state, &diagnostics, active.as_ref().map(|v| v.id))
+        .await?;
     Ok(Json(json!({
+        "explanation": explanation,
         "as_of": state.now(),
         "nav": proposal.nav,
         "cash": proposal.cash,
@@ -61,6 +71,7 @@ pub async fn preview(
         "turnover": proposal.plan.turnover,
         "est_costs": proposal.plan.est_commission + proposal.plan.est_fees + proposal.plan.est_slippage,
         "history": {"from": proposal.history_from, "to": proposal.history_to},
+        "ai": proposal.ai,
     })))
 }
 

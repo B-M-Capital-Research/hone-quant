@@ -130,6 +130,16 @@ function FieldRow(props: { def: FieldDef; wb: Workbench; defaults: StrategyParam
         />
       );
     }
+    if (kind === "aimode") {
+      return (
+        <Segmented
+          value={String(value() ?? "off")}
+          onChange={(v) => props.wb.update(path, v)}
+          label={fieldText(path).label}
+          options={(["off", "shadow", "live"] as const).map((m) => ({ value: m, label: t().ai_modes[m] }))}
+        />
+      );
+    }
     if (kind === "optpct") {
       const enabled = () => value() !== null && value() !== undefined;
       return (
@@ -163,9 +173,9 @@ function FieldRow(props: { def: FieldDef; wb: Workbench; defaults: StrategyParam
   };
 
   return (
-    <div class="st-field" classList={{ "st-field-changed": isChanged(), "st-field-invalid": invalid(), wide: props.def.kind === "budgets" || props.def.kind === "method" }} data-path={path}>
+    <div class="st-field" classList={{ "st-field-changed": isChanged(), "st-field-invalid": invalid(), wide: props.def.kind === "budgets" || props.def.kind === "method" || props.def.kind === "aimode" }} data-path={path}>
       <div class="st-field-text">
-        <label class="st-field-label" for={props.def.kind === "bool" || props.def.kind === "method" ? undefined : id}>
+        <label class="st-field-label" for={props.def.kind === "bool" || props.def.kind === "method" || props.def.kind === "aimode" ? undefined : id}>
           {fieldText(path).label}
         </label>
         <div class="st-phint">{fieldText(path).hint}</div>

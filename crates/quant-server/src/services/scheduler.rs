@@ -8,6 +8,8 @@
 //!
 //! Daily timeline on a regular session (New York time; Singapore is +12h in summer):
 //! - open −90 min: refresh daily history, corporate actions; apply splits/dividends;
+//! - open −75 min: the AI sector view, when a strategy consults it and a model is configured
+//!   (in the background; retried until three hours before the close);
 //! - open −30 min: pre-open briefing (configurable);
 //! - open +30 min: opening plan → review window → automatic execution (configurable);
 //! - close −180 min: pre-close plan → review window → automatic execution;
@@ -32,7 +34,7 @@ use tokio::sync::Mutex;
 use crate::db::lock_key;
 use crate::notify::{self, Event};
 use crate::services::reminders::{self, Schedule};
-use crate::services::{broker, marketdata, planner, portfolio};
+use crate::services::{ai_view, broker, explain, marketdata, planner, portfolio};
 use crate::state::AppState;
 use crate::store::portfolios::{self, Book};
 use crate::store::settings::{self, AutomationMode, ExecutionSettings, RiskSettings};
@@ -45,6 +47,7 @@ struct LoopState {
     last_quote_poll: Option<Instant>,
     last_housekeeping: Option<Instant>,
     last_risk_check: Option<Instant>,
+    last_ai_check: Option<Instant>,
     initial_sync_done: bool,
 }
 
@@ -54,6 +57,7 @@ pub fn spawn(state: Arc<AppState>) -> tokio::task::JoinHandle<()> {
             last_quote_poll: None,
             last_housekeeping: None,
             last_risk_check: None,
+            last_ai_check: None,
             initial_sync_done: false,
         });
         let mut leader: Option<tokio_postgres::Client> = None;
@@ -226,6 +230,27 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
                 Ok(json!({"bars": report.bars, "failed": report.failed, "actions": actions, "applied": applied}))
             })
             .await;
+        }
+
+        // The AI sector view, after the pre-open refresh. A model call takes minutes, so it runs
+        // in the background; checked every five minutes.
+        if state.llm.is_some()
+            && now >= session.open - Duration::minutes(75)
+            && now < session.close - Duration::hours(3)
+            && ls
+                .last_ai_check
+                .is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(300))
+            && !ai_view::running()
+        {
+            ls.last_ai_check = Some(Instant::now());
+            // Never let this optional step hold up the rest of the tick.
+            let needed = ai_view::needed(state).await.unwrap_or_else(|error| {
+                tracing::warn!(error = %format!("{error:#}"), "AI sector view check failed");
+                false
+            });
+            if needed {
+                tokio::spawn(ai_view_job(state.clone(), key.clone()));
+            }
         }
 
         // Pre-open briefing.
@@ -409,6 +434,29 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
 }
 
 /// Job key of a portfolio's daily job.
+/// Forms the day's AI sector view once; a failed attempt is retried by later ticks. While the
+/// rolling 24-hour attempt cap is reached the job is not even claimed, so it runs as soon as the
+/// cap frees up (before the pre-close plan) instead of being written off for the day.
+async fn ai_view_job(state: Arc<AppState>, key: String) {
+    match ai_view::capped(&state).await {
+        Ok(false) => {}
+        Ok(true) => return,
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "AI sector view cap check failed");
+            return;
+        }
+    }
+    let work_state = state.clone();
+    let _ = once(&state, "ai_view", &key, move || async move {
+        let generated = ai_view::generate(&work_state, "system").await?;
+        match &generated.error {
+            None => Ok(json!(generated)),
+            Some(error) => Err(anyhow::anyhow!("view {}: {error}", generated.id)),
+        }
+    })
+    .await;
+}
+
 fn book_key(day_key: &str, book: &Book) -> String {
     format!("{day_key}:p{}", book.portfolio.id)
 }
@@ -458,15 +506,16 @@ async fn plan_slots(
             let failed = system::job_runs(&client, Some("plan"), 50)
                 .await?
                 .into_iter()
-                .any(|r| r.run_key == run_key && r.status == "failed");
+                .find(|r| r.run_key == run_key && r.status == "failed");
             drop(client);
-            let reason = if failed { "error" } else { "missed" };
+            let reason = if failed.is_some() { "error" } else { "missed" };
             planner::record_skipped_slot(
                 state,
                 portfolio_id,
                 today,
                 slot_name,
                 reason,
+                failed.and_then(|r| r.error),
                 slot.execute_deadline,
             )
             .await?;
@@ -479,6 +528,7 @@ async fn plan_slots(
                 today,
                 slot_name,
                 "operator",
+                None,
                 slot.execute_deadline,
             )
             .await?;
@@ -491,6 +541,7 @@ async fn plan_slots(
                 today,
                 slot_name,
                 "paused",
+                None,
                 slot.execute_deadline,
             )
             .await?;
@@ -610,6 +661,11 @@ async fn daily_summary(state: &Arc<AppState>, book: &Book, date: NaiveDate) -> R
         .filter_map(|p| p.day_change_pct.map(|c| (p.symbol.clone(), c)))
         .collect();
     movers.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let drivers = {
+        let client = state.pool.get().await?;
+        let plans = trading::plans_for_date(&client, book.account.id, date).await?;
+        explain::period_drivers(&client, &plans).await?
+    };
     notify::notify_in(
         state,
         &book.portfolio.tag(),
@@ -622,6 +678,7 @@ async fn daily_summary(state: &Arc<AppState>, book: &Book, date: NaiveDate) -> R
             trades: fills.len(),
             best: movers.first().cloned(),
             worst: movers.last().cloned(),
+            drivers,
         },
     )
     .await?;
@@ -659,6 +716,19 @@ async fn weekly_report(state: &Arc<AppState>, book: &Book, date: NaiveDate) -> R
         },
     )
     .await?;
+    let (week_plans, _) = trading::list_plans(
+        &client,
+        book.account.id,
+        &trading::PlanFilter {
+            from: Some(week_start + Duration::days(1)),
+            to: Some(date),
+            status: None,
+            limit: 100,
+            offset: 0,
+        },
+    )
+    .await?;
+    let drivers = explain::period_drivers(&client, &week_plans).await?;
     drop(client);
     notify::notify_in(
         state,
@@ -670,6 +740,7 @@ async fn weekly_report(state: &Arc<AppState>, book: &Book, date: NaiveDate) -> R
             max_drawdown: perf.metrics.max_drawdown,
             trades: trades as usize,
             nav: last,
+            drivers,
         },
     )
     .await?;

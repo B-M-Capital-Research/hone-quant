@@ -1,0 +1,21 @@
+# /etc/systemd/system/hone-quant-ontology.service — run by hone-quant-ontology.timer.
+#
+# Only for hone-quant on honeclaw's own host (hone-claw.com/quant): copies honeclaw's industry
+# ontology and its live edit log into /var/lib/hone-quant/ontology for the AI sector view. Runs
+# as root because honeclaw's files are not readable by the hone-quant user, and should stay so.
+# See docs/deploy-hone-claw-quant.md.
+[Unit]
+Description=Copy honeclaw's industry ontology for hone-quant's AI sector view
+
+[Service]
+Type=oneshot
+# Override to match another honeclaw installation:
+# Environment=HONECLAW_ONTOLOGY=/srv/honeclaw/skills/industry-map/references/industry-map.json
+# Environment=HONECLAW_ONTOLOGY_EDITS=/srv/honeclaw/data/industry_map/edits.json
+ExecStart=/opt/hone-quant/current/scripts/copy-ontology.sh /var/lib/hone-quant/ontology
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/hone-quant

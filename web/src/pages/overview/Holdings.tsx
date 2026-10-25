@@ -2,9 +2,10 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import { Icon } from "@/components/Icon";
 import { Segmented, Switch, WeightBar } from "@/components/ui";
 import { pick, tpl } from "@/i18n";
+import { explainText } from "@/i18n/explain";
 import { overviewText } from "@/i18n/overview";
 import { fmtMoney, fmtPct, fmtPrice, fmtQty, moneyPolarity, polarity } from "@/lib/format";
-import type { Board, Valuation } from "@/lib/types";
+import type { Board, ExposureView, Valuation } from "@/lib/types";
 import { sectorLabel, store, stored } from "./util";
 
 interface Row {
@@ -30,11 +31,41 @@ type SortKey = "symbol" | "value" | "weight" | "gap" | "unrealized" | "day";
 
 const sum = (xs: (number | null | undefined)[]) => xs.reduce<number>((a, b) => a + (b ?? 0), 0);
 
-export function Holdings(props: { valuation: Valuation; targets: Record<string, number> | null; board: Board | undefined; onPick: (symbol: string) => void }) {
+export function Holdings(props: {
+  valuation: Valuation;
+  targets: Record<string, number> | null;
+  board: Board | undefined;
+  exposure?: ExposureView | null;
+  onPick: (symbol: string) => void;
+}) {
   const t = overviewText;
   const [mode, setMode] = createSignal(stored("holdings.mode", "grouped", ["grouped", "flat"] as const));
   const [showPending, setShowPending] = createSignal(stored("holdings.pending", "on", ["on", "off"] as const) === "on");
   const [sort, setSort] = createSignal<{ key: SortKey; dir: 1 | -1 }>({ key: "weight", dir: -1 });
+
+  /** Tooltip: sector budget × share within the sector, the signals, and the band in use. */
+  const weightWhy = (symbol: string): string | undefined => {
+    const x = explainText().weight_why;
+    const w = props.exposure?.weights[symbol];
+    const b = props.exposure?.bands.find((band) => band.symbol === symbol);
+    const lines: string[] = [];
+    if (w) {
+      lines.push(
+        tpl(x.line, {
+          sector: sectorLabel(props.board?.sectors, w.sector),
+          sector_weight: fmtPct(w.sector_weight, { dp: 1 }),
+          share: fmtPct(w.share, { dp: 1 }),
+          target: fmtPct(w.target, { dp: 2 }),
+        }),
+      );
+      lines.push(tpl(x.signals, { vol: fmtPct(w.vol, { dp: 0 }), mm: w.momentum_multiplier.toFixed(2), tm: w.trend_multiplier.toFixed(2) }));
+      if (w.capped) lines.push(x.capped);
+    }
+    if (b && b.band > 0) {
+      lines.push(tpl(x.band, { drift: fmtPct(b.drift, { dp: 2, sign: true }), band: fmtPct(b.band, { dp: 2 }), used: fmtPct(Math.abs(b.drift) / b.band, { dp: 0 }) }));
+    }
+    return lines.length ? lines.join("\n") : undefined;
+  };
 
   const rows = createMemo<Row[]>(() => {
     const v = props.valuation;
@@ -184,7 +215,7 @@ export function Holdings(props: { valuation: Valuation; targets: Record<string, 
       </td>
       <td class="r num">{r.pending ? "—" : fmtMoney(r.value, { dp: 0 })}</td>
       <td class="r">
-        <div class="weight-cell">
+        <div class="weight-cell" title={weightWhy(r.symbol)}>
           <WeightBar weight={r.weight} target={r.target} max={0.06} />
           <span class="num">
             {fmtPct(r.weight, { dp: 1 })}

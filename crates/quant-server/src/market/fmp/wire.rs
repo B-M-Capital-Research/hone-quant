@@ -15,7 +15,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
 use super::transport::FetchError;
-use crate::market::{DailyBar, Dividend, IntradayBar, Quote, Split};
+use crate::market::{DailyBar, Dividend, EarningsReport, IntradayBar, Quote, Split};
 
 /// A numeric field FMP may send as a number, a numeric string or `null`. Deserialising never
 /// fails; anything unusable (including NaN and infinities) becomes `None`.
@@ -427,6 +427,39 @@ pub(super) fn dividends(value: Value, symbol: &str) -> Result<Vec<Dividend>, Fet
     Ok(dividends)
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct EarningsRow {
+    date: Option<String>,
+    /// Stable: `epsActual`/`revenueActual`; legacy: `eps`/`revenue`.
+    eps_actual: Num,
+    eps: Num,
+    eps_estimated: Num,
+    revenue_actual: Num,
+    revenue: Num,
+    revenue_estimated: Num,
+}
+
+/// Quarterly reports oldest first, one per date; rows without a date are skipped.
+pub(super) fn earnings(value: Value, symbol: &str) -> Result<Vec<EarningsReport>, FetchError> {
+    let mut reports: Vec<EarningsReport> = parse_rows::<EarningsRow>(value)?
+        .into_iter()
+        .filter_map(|row| {
+            Some(EarningsReport {
+                symbol: symbol.to_string(),
+                date: parse_date(row.date.as_deref()?)?,
+                eps_actual: row.eps_actual.value().or(row.eps.value()),
+                eps_estimate: row.eps_estimated.value(),
+                revenue_actual: row.revenue_actual.positive().or(row.revenue.positive()),
+                revenue_estimate: row.revenue_estimated.positive(),
+            })
+        })
+        .collect();
+    reports.sort_by_key(|report| report.date);
+    reports.dedup_by_key(|report| report.date);
+    Ok(reports)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -628,6 +661,32 @@ mod tests {
                 "2026-03-09T19:59:00+00:00",
             ]
         );
+    }
+
+    #[test]
+    fn earnings_rows_of_both_generations_are_read() {
+        let stable = earnings(
+            json!([
+                {"symbol": "NVDA", "date": "2026-11-19", "epsActual": null, "epsEstimated": 1.32, "revenueActual": null, "revenueEstimated": 108000000000.0},
+                {"symbol": "NVDA", "date": "2026-08-26", "epsActual": 1.21, "epsEstimated": "1.15", "revenueActual": 96221000000.0, "revenueEstimated": 94000000000.0},
+                {"symbol": "NVDA", "date": null, "epsActual": 1.0},
+            ]),
+            "NVDA",
+        )
+        .unwrap();
+        assert_eq!(stable.len(), 2);
+        assert_eq!(stable[0].date, d(2026, 8, 26));
+        assert_eq!(stable[0].eps_estimate, Some(1.15));
+        assert_eq!(stable[0].revenue_actual, Some(96_221_000_000.0));
+        assert_eq!(stable[1].eps_actual, None);
+
+        let legacy = earnings(
+            json!([{"date": "2026-08-26", "symbol": "NVDA", "eps": 1.21, "epsEstimated": 1.15, "revenue": 96221000000.0, "revenueEstimated": 94000000000.0}]),
+            "NVDA",
+        )
+        .unwrap();
+        assert_eq!(legacy[0].eps_actual, Some(1.21));
+        assert_eq!(legacy[0].revenue_actual, Some(96_221_000_000.0));
     }
 
     #[test]

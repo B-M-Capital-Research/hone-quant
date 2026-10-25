@@ -119,7 +119,19 @@ export interface PlanSummary {
   strategy_name?: string;
   cash_after?: number;
   skip_reason?: string;
-  executed?: { filled: number; partial: number; rejected: number; bought: number; sold: number; costs: number };
+  executed?: { filled: number; partial: number; rejected: number; bought: number; sold: number; costs: number; rejections?: Rejection[] };
+}
+
+/** What a rejected order saw against its execution limits (recorded from this version on). */
+export interface Rejection {
+  symbol: string;
+  reason: string;
+  ref_price: number;
+  quote: number | null;
+  quote_age_secs?: number | null;
+  max_price_deviation?: number;
+  max_quote_age_secs?: number;
+  cash?: number;
 }
 
 export interface Order {
@@ -317,6 +329,7 @@ export interface Restriction {
 
 export interface PlanWithOrders extends Plan {
   orders: Order[];
+  headline: Headline | null;
 }
 
 export interface Dashboard {
@@ -326,9 +339,45 @@ export interface Dashboard {
   targets: { plan_id: number; generated_at: Iso; weights: Record<string, number> } | null;
   plans: PlanWithOrders[];
   recent_plans: Plan[];
+  /** Breadth, exposure and next triggers from the latest plan; null before the first plan. */
+  exposure: ExposureView | null;
   restrictions: Restriction[];
   unread_notifications: number;
   data: { source: DataSource; last_quote_at: Iso | null };
+}
+
+export interface ExposureView {
+  plan_id: number;
+  trade_date: DateStr;
+  slot: Slot;
+  generated_at: Iso;
+  previous_plan_id: number | null;
+  breadth_scaling: boolean;
+  line: number;
+  min_exposure: number;
+  max_exposure: number;
+  min_history_days: number;
+  breadth: number | null;
+  above: number | null;
+  counted: number | null;
+  exposure_target: number | null;
+  invested_target: number | null;
+  crossed_below: string[];
+  crossed_above: string[];
+  invested_now: number;
+  cash_gap: number | null;
+  cash_band: number;
+  triggers: {
+    invested: number;
+    trim_below: number | null;
+    top_up_above: number | null;
+    counted: number | null;
+    trim_below_count: number | null;
+    top_up_above_count: number | null;
+  } | null;
+  history: { plan_id: number; trade_date: DateStr; slot: Slot; breadth: number | null; exposure_target: number | null; invested_target: number | null }[];
+  bands: { symbol: string; weight: number; target: number; drift: number; band: number }[];
+  weights: Record<string, { sector: string; sector_weight: number; share: number; vol: number | null; momentum_multiplier: number; trend_multiplier: number; breadth_gap: number | null; capped: boolean; target: number }>;
 }
 
 export interface Sector {
@@ -471,6 +520,17 @@ export interface StrategyParams {
     max_turnover: number;
     fractional_shares: boolean;
   };
+  /** Absent on versions saved before the AI sector view existed (= off). */
+  ai?: AiParams;
+}
+
+export type AiMode = "off" | "shadow" | "live";
+
+export interface AiParams {
+  mode: AiMode;
+  max_tilt: number;
+  min_confidence: number;
+  max_age_days: number;
 }
 
 export interface Preset {
@@ -520,6 +580,9 @@ export interface AssetDiagnostics {
   momentum: number | null;
   momentum_rank: number | null;
   trend: number | null;
+  /** price / SMA(breadth) − 1; absent on plans stored before it was recorded. */
+  breadth_gap?: number | null;
+  above_breadth_line?: boolean | null;
   momentum_multiplier: number;
   trend_multiplier: number;
   score: number;
@@ -534,6 +597,9 @@ export interface SectorDiagnostics {
   momentum: number | null;
   momentum_rank: number | null;
   trend_factor: number;
+  /** Recorded from the AI sector view on. */
+  ai_stance?: number | null;
+  ai_multiplier?: number;
   score: number;
   cap: number;
   budget: number;
@@ -577,6 +643,8 @@ export interface ProposedOrder {
 }
 
 export interface Preview {
+  /** Compared with the portfolio's latest plan, as a plan would be. */
+  explanation?: PlanExplanation | null;
   as_of: Iso;
   nav: number;
   cash: number;
@@ -588,6 +656,8 @@ export interface Preview {
   turnover: number;
   est_costs: number;
   history: { from: DateStr | null; to: DateStr | null };
+  /** What the AI sector view did, when the parameters consult it. */
+  ai?: PlanAi | null;
 }
 
 export interface PlanDiagnostics {
@@ -609,8 +679,253 @@ export interface PlanDiagnostics {
     cash_after: number;
     turnover_scale: number | null;
     cash_scale: number | null;
+    /** Recorded from this version on. */
+    invested_now?: number;
+    invested_target?: number;
+    cash_gap?: number;
+    cash_band?: number;
+    band_waiver?: BandWaiver | null;
+    band_waived?: string[];
   };
   history?: { from: DateStr | null; to: DateStr | null };
+  explain?: PlanExplanation;
+  /** What the AI sector view did; absent when the strategy does not consult it. */
+  ai?: PlanAi | null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// AI sector view
+// ---------------------------------------------------------------------------------------------
+
+export interface PlanAiSector {
+  sector: string;
+  stance: number;
+  confidence: number;
+  multiplier: number;
+  weight_with: number;
+  weight_without: number;
+}
+
+export interface PlanAi {
+  mode: AiMode;
+  /** `live`: traded with the view · `shadow`: recorded only · `unavailable`: no usable view. */
+  status: "live" | "shadow" | "unavailable";
+  view_id: number | null;
+  as_of: DateStr | null;
+  model: string | null;
+  formed_at: Iso | null;
+  max_tilt: number;
+  min_confidence: number;
+  max_age_days: number;
+  sectors: PlanAiSector[];
+  weights_with: Record<string, number>;
+  weights_without: Record<string, number>;
+  active_share: number;
+}
+
+export interface AiEvidence {
+  source: "ontology" | "earnings" | "market";
+  ref: string;
+  date: DateStr | null;
+  note_zh: string;
+  note_en: string;
+}
+
+export interface AiSectorOpinion {
+  sector: string;
+  stance: number;
+  confidence: number;
+  rationale_zh: string;
+  rationale_en: string;
+  risks_zh: string;
+  risks_en: string;
+  evidence: AiEvidence[];
+  proposed_stance: number | null;
+  flags: string[];
+}
+
+export interface AiViewOutput {
+  as_of: DateStr;
+  summary_zh: string;
+  summary_en: string;
+  sectors: AiSectorOpinion[];
+  notes: string[];
+}
+
+export interface AiView {
+  id: number;
+  as_of: DateStr;
+  status: "running" | "ok" | "failed";
+  prompt_version: string;
+  model: string;
+  output: AiViewOutput | null;
+  error: string | null;
+  usage: Record<string, unknown> | null;
+  latency_ms: number | null;
+  created_by: string;
+  created_at: Iso;
+  material?: unknown;
+  raw_response?: string | null;
+}
+
+export interface AiOverview {
+  configured: boolean;
+  model: string | null;
+  endpoint: string | null;
+  origin: string | null;
+  ontology: string;
+  running: boolean;
+  attempts_24h: number;
+  max_attempts_24h: number;
+  portfolios: { portfolio_id: number; portfolio: string; version_id: number; version: string; ai: AiParams }[];
+  latest: AiView | null;
+  views: AiView[];
+}
+
+export interface AiOverlayDay {
+  date: DateStr;
+  bps: number;
+  cumulative_bps: number;
+  plan_id: number;
+}
+
+export interface AiEvaluation {
+  plans: number;
+  days: number;
+  first_plan: DateStr | null;
+  cumulative_bps: number;
+  mean_bps: number | null;
+  hit_rate: number | null;
+  t_stat: number | null;
+  mean_active_share: number | null;
+  sectors: Record<string, number>;
+  series: AiOverlayDay[];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Plan explanations (quant_core::explain)
+// ---------------------------------------------------------------------------------------------
+
+export type BandWaiver = "buys" | "sells";
+
+export type OrderDriver =
+  | "first_plan"
+  | "newly_eligible"
+  | "added_to_universe"
+  | "back_above_min_weight"
+  | "restriction_lifted"
+  | "trend_reentry"
+  | "below_min_weight"
+  | "trend_exit"
+  | "excluded"
+  | "not_in_universe"
+  | "lost_eligibility"
+  | "exposure"
+  | "sector_budget"
+  | "trend"
+  | "momentum"
+  | "volatility"
+  | "peers"
+  | "new_peers"
+  | "price_drift"
+  | "carry_over_turnover"
+  | "carry_over_cash"
+  | "retry";
+
+export type NoActionReason = "within_bands" | "below_min_trade" | "not_tradable" | "nothing_to_trade";
+
+/** Orders attributed to a plan-level driver and the weight they trade. */
+interface Tally {
+  orders: number;
+  weight: number;
+}
+
+export type PlanDriver =
+  | { code: "first_plan"; eligible: number; universe: number }
+  | { code: "strategy_changed"; from: number | null; to: number | null }
+  | { code: "history_limited"; insufficient: number; universe: number }
+  | { code: "no_action"; reason: NoActionReason; gap: number }
+  | ({ code: "newly_eligible"; count: number; cut: number } & Tally)
+  | ({ code: "breadth"; line: number; before: number; now: number; crossed_below: number; crossed_above: number; exposure_before: number; exposure_now: number } & Tally)
+  | ({ code: "trend_breaks"; count: number } & Tally)
+  | ({ code: "trend_recoveries"; count: number } & Tally)
+  | ({ code: "sector_budget"; sector: string; before: number; now: number } & Tally)
+  | ({ code: "orders"; driver: OrderDriver } & Tally)
+  | ({ code: "price_drift" } & Tally)
+  | ({ code: "carry_over"; previous_turnover_scale: number | null; previous_cash_scale: number | null } & Tally)
+  | ({ code: "retry" } & Tally)
+  | { code: "turnover_cap"; scale: number; limit: number }
+  | { code: "cash_cap"; scale: number }
+  | { code: "band_waiver"; side: BandWaiver; gap: number; invested_now: number; invested_target: number; orders: number }
+  | { code: "frozen"; count: number }
+  | { code: "excluded"; count: number };
+
+export interface Headline {
+  previous_plan_id: number | null;
+  drivers: PlanDriver[];
+}
+
+export interface OrderExplanation {
+  symbol: string;
+  sector: string | null;
+  side: Side;
+  weight_before: number;
+  weight_target: number;
+  previous_target: number | null;
+  drift: number | null;
+  model: number | null;
+  driver: OrderDriver;
+  status_before: AssetStatus | null;
+  status_now: AssetStatus | null;
+  components: { driver: OrderDriver; log: number; weight: number }[];
+  price_drift: number | null;
+  left_over: number | null;
+  left_over_cause: OrderDriver | null;
+  previous_order_status: OrderStatus | null;
+  previous_status_reason: string | null;
+  price_change: number | null;
+  trend_multiplier_before: number | null;
+  trend_multiplier_now: number | null;
+  band_waived: boolean;
+  scaled: boolean;
+}
+
+export interface PlanExplanation extends Headline {
+  version: number;
+  breadth: {
+    source: "recorded" | "reconstructed" | "unavailable";
+    before: number | null;
+    now: number | null;
+    above_before: number | null;
+    counted_before: number | null;
+    above_now: number | null;
+    counted_now: number | null;
+    crossed_below: string[];
+    crossed_above: string[];
+  };
+  exposure: { before: number | null; now: number | null };
+  est_vol: { before: number | null; now: number | null };
+  cash: { invested_now: number; invested_target: number; gap: number; band: number; waiver: BandWaiver | null; derived: boolean };
+  turnover_scale: number | null;
+  cash_scale: number | null;
+  universe: number;
+  insufficient_history: number;
+  newly_eligible: string[];
+  trend_breaks: { symbol: string; before: number; now: number }[];
+  trend_recoveries: { symbol: string; before: number; now: number }[];
+  sectors: { sector: string; before: number | null; now: number; share_effect: number | null }[];
+  frozen: Flag[];
+  excluded: Flag[];
+  no_action: {
+    reason: NoActionReason;
+    within_band: number;
+    below_min_trade: number;
+    not_tradable: number;
+    rounded: number;
+    closest: { symbol: string; drift: number; band: number } | null;
+  } | null;
+  tally: { driver: OrderDriver; orders: number; weight: number }[];
+  orders: OrderExplanation[];
 }
 
 export interface AuditEntry {
@@ -629,6 +944,8 @@ export interface PlanDetail {
   orders: Order[];
   fills: Fill[];
   diagnostics: PlanDiagnostics;
+  /** Why this plan: stored at generation, or computed on read for older plans. */
+  explanation: PlanExplanation | null;
   audit: AuditEntry[];
   strategy: StrategyVersion | null;
   names: Record<string, { zh: string; en: string; sector: string }>;
@@ -1025,5 +1342,7 @@ export type ServerEvent =
   /** A portfolio was created, renamed or archived. */
   | { type: "portfolios"; portfolio_id: number }
   | { type: "universe" }
+  /** An AI sector view was formed (or failed). */
+  | { type: "ai_view"; id: number; status: "running" | "ok" | "failed" }
   | { type: "resync" }
   | { type: "hello" };

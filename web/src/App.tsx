@@ -14,6 +14,7 @@ const PlanDetail = lazy(() => import("@/pages/PlanDetail"));
 const Trades = lazy(() => import("@/pages/Trades"));
 const Strategy = lazy(() => import("@/pages/Strategy"));
 const Universe = lazy(() => import("@/pages/Universe"));
+const Ai = lazy(() => import("@/pages/Ai"));
 const Backtests = lazy(() => import("@/pages/Backtests"));
 const BacktestDetail = lazy(() => import("@/pages/BacktestDetail"));
 const Performance = lazy(() => import("@/pages/Performance"));
@@ -78,6 +79,7 @@ export function App() {
         <Route path="/portfolios" component={Portfolios} />
         <Route path="/strategy" component={Strategy} />
         <Route path="/universe" component={Universe} />
+        <Route path="/ai" component={Ai} />
         <Route path="/backtests" component={Backtests} />
         <Route path="/backtests/:id" component={BacktestDetail} />
         <Route path="/performance" component={Performance} />

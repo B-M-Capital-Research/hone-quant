@@ -124,7 +124,7 @@ export const api = {
 
   // Plans & trading
   plans: (q: { from?: string; to?: string; status?: string; limit?: number; offset?: number }) =>
-    get<{ plans: T.Plan[]; total: number }>(`/plans${qs(q)}`),
+    get<{ plans: T.Plan[]; total: number; headlines: Record<string, T.Headline> }>(`/plans${qs(q)}`),
   plan: (id: number) => get<T.PlanDetail>(`/plans/${id}`),
   approvePlan: (id: number, note = "") => post<{ report: unknown }>(`/plans/${id}/approve`, { note }),
   cancelPlan: (id: number, reason = "") => post<{ ok: boolean }>(`/plans/${id}/cancel`, { reason }),
@@ -165,6 +165,12 @@ export const api = {
   createBacktest: (body: Record<string, unknown>) => post<{ backtest: T.BacktestRow }>("/backtests", body),
   deleteBacktest: (id: number) => del<{ ok: boolean }>(`/backtests/${id}`),
   performance: (range: string) => get<T.Performance>(`/performance${qs({ range })}`),
+
+  // AI sector view
+  ai: () => get<T.AiOverview>("/ai"),
+  aiView: (id: number) => get<{ view: T.AiView }>(`/ai/views/${id}`),
+  generateAiView: () => post<{ started: boolean }>("/ai/views/generate"),
+  aiEvaluation: () => get<{ evaluation: T.AiEvaluation }>("/ai/evaluation"),
 
   // System
   notifications: (q: { unread?: boolean; category?: string; before?: number; limit?: number }) =>

@@ -43,7 +43,8 @@ use self::endpoints::{ApiKind, Family, Request};
 use self::transport::{FetchError, Transport};
 use self::wire::AdjustedPrices;
 use super::{
-    DailyBar, DataSource, Dividend, Interval, IntradayBar, MarketData, MarketError, Quote, Split,
+    DailyBar, DataSource, Dividend, EarningsReport, Interval, IntradayBar, MarketData, MarketError,
+    Quote, Split,
 };
 
 /// The public FMP host.
@@ -351,6 +352,17 @@ impl FmpClient {
         })
         .await
     }
+
+    async fn fetch_earnings(
+        &self,
+        api: ApiKind,
+        symbol: &str,
+    ) -> Result<Vec<EarningsReport>, FetchError> {
+        self.get(endpoints::earnings(api, symbol), |value| {
+            wire::earnings(value, symbol)
+        })
+        .await
+    }
 }
 
 /// Valid, upper-cased, de-duplicated symbols in request order; invalid ones are skipped.
@@ -483,6 +495,14 @@ impl MarketData for FmpClient {
             .await?;
         Ok(dividends)
     }
+
+    async fn earnings(&self, symbol: &str) -> Result<Vec<EarningsReport>, MarketError> {
+        let symbol = single_symbol(symbol)?;
+        let (_, reports) = self
+            .route(Family::Earnings, |api| self.fetch_earnings(api, &symbol))
+            .await?;
+        Ok(reports)
+    }
 }
 
 /// Result of probing one endpoint family on one API generation with the configured keys.
@@ -518,8 +538,8 @@ impl EndpointCheck {
 }
 
 /// Probes quote, batch quote, daily, dividend-adjusted daily (stable only), 5-minute intraday
-/// (last five days), splits and dividends for `symbol` on both API generations — the report
-/// behind `hone-quant fmp check`.
+/// (last five days), splits, dividends and earnings for `symbol` on both API generations — the
+/// report behind `hone-quant fmp check`.
 ///
 /// Probes run one after another, bypass `Auto` routing and leave its memory untouched, so the
 /// report shows what each generation can serve with the configured keys.
@@ -615,6 +635,13 @@ pub async fn diagnose(client: &FmpClient, symbol: &str) -> Vec<EndpointCheck> {
                 )
             },
         ));
+    }
+    for api in BOTH {
+        let outcome = client.fetch_earnings(api, &symbol).await;
+        checks.push(EndpointCheck::probe("earnings", api, outcome, |reports| {
+            let reported = reports.iter().filter(|r| r.eps_actual.is_some());
+            latest(reports.len(), reported.map(|r| r.date).max())
+        }));
     }
     checks
 }

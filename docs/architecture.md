@@ -23,7 +23,7 @@ deliberately small: one process, one database schema, no message broker, no exte
 
 | Path | Contents |
 | --- | --- |
-| `crates/quant-core` | Pure domain logic: NYSE calendar and plan schedule, statistics, the strategy engine, the rebalancer, the cost model, performance metrics and the daily-bar backtester. No I/O. |
+| `crates/quant-core` | Pure domain logic: NYSE calendar and plan schedule, statistics, the strategy engine, the rebalancer, plan explanations, the cost model, performance metrics and the daily-bar backtester. No I/O. |
 | `crates/quant-server` | The `hone-quant` binary: configuration, PostgreSQL pool and migrations, stores, market data (FMP client, demo market), services (market data sync, portfolio valuation, planner, paper broker, scheduler, reminders, backtests), notifications and channels, HTTP API, embedded UI, CLI. |
 | `web` | SolidJS + Vite single-page app: pages, components, ECharts builders, bilingual dictionaries, design tokens. Built into `web/dist` and embedded in the binary at compile time. |
 | `config` | The universe generated from honeclaw's ontology (`universe.json`) and its bilingual overlay. |
@@ -72,7 +72,29 @@ deliberately small: one process, one database schema, no message broker, no exte
 ```
 
 A slot that should have produced a plan but did not is recorded as `skipped` with the reason
-(automation paused, cancelled by an operator, missed while the service was down, or an error).
+(automation paused, cancelled by an operator, missed while the service was down, or an error; for
+an error the failed run's message is kept on the plan).
+
+## Plan explanations
+
+Every plan stores the engine's full output in `plans.diagnostics` (per-name signals,
+multipliers and weights, sector budgets, breadth with each name's position against the breadth
+line, quotes, parameters, skipped trades, the rebalancer's scaling, cash gap and band waiver).
+`quant_core::explain` compares a plan with the account's previous plan with engine output and
+returns codes and numbers, never prose: plan-level drivers (breadth and the names that crossed
+the line, exposure, the cash gap against the 5-point tolerance and which side's bands it waived,
+caps, trend breaks, sector budgets, restrictions, why nothing traded) and, for each order, its
+drift (price move, carry-over of a capped plan, retry) and model change (exposure, sector share,
+trend, momentum, volatility, peers) with the dominant driver.
+
+- The planner stores the explanation under `diagnostics.explain` and puts the headline driver
+  codes in the `plan.generated` audit entry; plans stored earlier are explained when read.
+- The API returns it with the plan detail, a compact headline per plan in the plans list and the
+  dashboard, an exposure view (breadth counts, formula, crossings, next triggers, band distances)
+  on the dashboard, and the explanation of a strategy preview against the latest plan.
+- Notifications render the headline on the server (`services/explain.rs`); the web UI renders the
+  same codes with its own dictionaries (`web/src/lib/explain.ts`).
+- Execution records what each rejected order saw against its limits in the plan summary.
 
 ## Scheduler
 
@@ -151,7 +173,8 @@ executes in a single database transaction after re-checking every quote.
 ## Testing
 
 - `quant-core`: unit tests for the calendar (holidays, DST, early closes), schedule, statistics,
-  allocation, strategy engine, rebalancer, costs, metrics and backtester.
+  allocation, strategy engine, rebalancer, explanations, costs, metrics and backtester, plus
+  golden fingerprints of target weights and backtest trades that diagnostics may never change.
 - `quant-server`: unit and integration tests (stores, broker, scheduler pieces, notification
   channels with a local mock server, FMP wire formats, demo market) against a real PostgreSQL
   (`HONE_QUANT_TEST_DATABASE_URL`, one throw-away schema per test).

@@ -1,5 +1,6 @@
 //! HTTP API (`/api/*`), the SSE event stream and the embedded web UI.
 
+mod ai;
 pub mod context;
 pub mod error;
 
@@ -270,6 +271,11 @@ pub fn router(state: SharedState) -> Router {
             get(research::backtest_detail).delete(research::delete_backtest),
         )
         .route("/performance", get(research::performance))
+        // AI sector view.
+        .route("/ai", get(ai::overview))
+        .route("/ai/views/generate", post(ai::generate))
+        .route("/ai/views/{id}", get(ai::view_detail))
+        .route("/ai/evaluation", get(ai::evaluation))
         // System.
         .route("/notifications", get(system_routes::notifications))
         .route("/notifications/read-all", post(system_routes::read_all))

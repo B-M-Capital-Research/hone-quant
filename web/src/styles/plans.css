@@ -178,3 +178,90 @@ a.ticker:hover {
 .plan-portfolio-banner .btn .truncate {
   min-width: 0;
 }
+
+/* Why this plan */
+.why-card .card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.why-headline {
+  margin: 0;
+  font-size: var(--hone-text-sm);
+  line-height: 1.55;
+}
+
+.why-card .breadth-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.why-orders {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.why-orders li {
+  display: grid;
+  grid-template-columns: auto 64px minmax(0, 160px) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.why-name {
+  min-width: 0;
+}
+
+.why-reason {
+  line-height: 1.4;
+}
+
+.why-flag {
+  margin-left: 6px;
+}
+
+.why-line {
+  margin-top: 2px;
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .why-orders li {
+    grid-template-columns: auto 56px minmax(0, 1fr);
+  }
+
+  .why-orders li .why-name {
+    display: none;
+  }
+
+  .why-orders li .why-reason {
+    grid-column: 1 / -1;
+  }
+}
+
+.why-col {
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.why-line.wrap {
+  max-width: none;
+  white-space: normal;
+}
+
+.plans-why {
+  max-width: 260px;
+}
+
+.plans-why .why-line {
+  margin-top: 0;
+}

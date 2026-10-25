@@ -31,11 +31,23 @@ dividend-adjusted closes.
 about six months) of history; otherwise it is reported as *no price* / *short history* and gets no
 new allocation (an existing position without a price is held as is).
 
-**Step 1 — how much to invest (market state).** *Breadth* is the share of eligible companies
-trading above their 200-day average. Target exposure moves linearly between the minimum and
-maximum exposure (60% and 98% by default):
+**Step 1 — how much to invest (market state).** *Breadth* is the equal-weight share of eligible
+companies whose decision price is above their 200-day average. Precisely:
 
-> exposure = min + (max − min) × breadth
+- only *active* companies count: a usable quote and at least 126 sessions of history (the
+  eligibility rule above);
+- each company's series is its last `max_lookback` adjusted closes with the live quote appended,
+  so the 200-day average is the 199 previous closes plus the live price, and the company counts
+  as above the line when the live price is strictly above that average;
+- an active company with fewer than 200 price points (126–199 sessions of history) has no
+  200-day average and is left out of both the count and the total;
+- every counted company weighs the same, whatever its size or weight.
+
+Target exposure moves linearly between the minimum and maximum exposure (60% and 98% by default):
+
+> exposure = min + (max − min) × breadth = 0.60 + 0.38 × breadth
+
+so every name of 64 that crosses the line moves exposure by 0.38 / 64 ≈ 0.6 percentage points.
 
 Broad weakness therefore raises cash automatically; broad strength puts it to work. Cash is the
 barbell's safe end.
@@ -73,6 +85,61 @@ Frozen (locked) names keep their current weight and are left outside these steps
 stores the full diagnostics — breadth, sector scores, budgets and caps, each company's volatility,
 momentum, rank, multipliers and final weight — and shows them on the plan's page.
 
+### The AI sector view (optional)
+
+The `ai` group of the strategy parameters decides whether plans consult the **AI sector view**. It
+is the only outside input to step 2 and acts on sector scores only: it changes no name's score,
+no cap and not the exposure target set by breadth (with a volatility ceiling, the ceiling applies
+to the tilted weights, so total exposure can differ slightly).
+
+**How a view is formed.** 75 minutes before each session's open (only when some portfolio's active
+strategy consults it and a model is configured), the server hands a dated briefing to the model —
+by default the Gemini route hone-claw.com's chat uses, i.e. honeclaw's loopback Gemini proxy:
+
+- **Ontology research**: for each sector of honeclaw's industry ontology, the brief, the driver
+  chain, the key variables, the latest readings of its upstream signals, the watch items and the
+  newest sources — only material dated on or before the last close; research not updated for 120
+  days is flagged stale;
+- **Market statistics** from adjusted closes: each sector's equal-weight index return over 1, 3, 6
+  and 12 months, 3-month volatility, distance to the 200-day average and to the one-year high, the
+  share of members above their 200-day average; and SPY, QQQ, SMH;
+- **Earnings** from FMP: each company's last EPS and revenue surprise against consensus, and its
+  next report date.
+
+The model returns, per sector, a *stance* (an integer from −2 to +2), a confidence *c* (0 to 0.9),
+a rationale, risks and dated evidence. The prompt requires neutral by default, the material only,
+and that price moves alone are not evidence (step 2's momentum signals showed no predictive power
+in this universe).
+
+**Validation is deterministic, not left to the model.** Sectors outside the universe are ignored;
+numbers are clamped; evidence dated after the last close is dropped; a non-zero stance needs at
+least two pieces of evidence, at least one of them dated ontology research or an earnings report,
+or it is set back to neutral and flagged *not enough evidence*. Every attempt, successful or not,
+is stored with the material the model read and its raw answer (`ai_views`) and can be inspected on
+the *AI sector view* page. To protect the model quota shared with honeclaw, the model is called at
+most four times in any 24 hours.
+
+**How a view is used.** After the momentum tilt, the sector's score is multiplied by
+
+> multiplier = 1 + max tilt × (stance / 2) × c (1 when c is below the minimum confidence)
+
+With the default 25% maximum tilt the strongest view (+2 at 0.9) is ×1.225; sector floors and caps,
+the single-name cap and the volatility ceiling apply afterwards. A view whose last close is older
+than its lifetime (default five calendar days) is not used.
+
+**Three modes.** *Off*: not consulted. *Shadow*: plans trade the rules as usual and also compute
+the targets with the same view; both sets are stored in the plan's diagnostics (`ai`). *Live*:
+plans trade the targets with the view and store the ones without it.
+
+**Why shadow first.** AI views cannot be tested on history: the model knows what happened, and the
+ontology is not archived point-in-time, so any "backtest" would be optimistic. Backtests therefore
+never apply the view. The only credible test is forward: the AI page holds each plan's targets
+*with − without* until the next plan (a later plan without a view ends the holding, and its days
+are not counted), rescales the targets with the view to the invested weight of the targets
+without it so that only the reallocation is measured, and values the difference on every
+following adjusted close (extra trading costs excluded), reporting the cumulative and mean contribution, the share of positive
+days, a t-statistic and the contribution by sector. Below about 60 trading days it is mostly noise.
+
 ## 3. From targets to orders
 
 1. Locked names and names without a usable quote are never traded.
@@ -89,6 +156,53 @@ momentum, rank, multipliers and final weight — and shows them on the plan's pa
 5. Whole shares (buys rounded down); trades under US$1,000 are dropped (exits excepted).
 6. Sells first; buys are scaled down if cash after costs would not cover them — the paper account
    never borrows or shorts.
+
+### Reading a plan's explanation
+
+Every plan is compared with the account's previous plan (the latest one that ran the engine;
+skipped slots have none), and the comparison is stored with the plan and shown as *Why this plan*
+on its page, as a one-line *why* in the plans list, on the overview and in the plan
+notification. Plans stored before explanations existed are explained when they are read, from
+their stored diagnostics.
+
+**Plan level.** The headline lists, in order: context (first plan, a changed strategy, a universe
+limited by short histories, or why nothing traded), then the driver behind the most traded
+weight, the caps, the band waiver, and the remaining drivers.
+
+| Driver | Meaning |
+| --- | --- |
+| Breadth | Breadth before → now with the names that crossed the 200-day line, and target exposure before → now. It leads when the exposure change caused the band waiver (without it the cash gap would have been inside the tolerance). |
+| Band waiver | Invested weight now vs the target invested weight: when they are more than 5 points apart, every name on the side that closes the gap trades even inside its band. |
+| Trend breaks / recoveries | Names whose trend multiplier fell (rose) by more than 0.1 since the previous plan. |
+| Sector budget | The sector whose budget change moved the most traded weight. |
+| Price drift | Orders that only bring a name back to target after its price moved. |
+| Carry-over | Orders that finish what the turnover cap (or cash) left undone in the previous plan. |
+| Retry | Orders for names whose previous order was rejected, expired or did not fill. |
+| Newly eligible | Names that now have enough history, and the existing positions cut to share their sector budgets. |
+| Turnover cap / cash cap | This plan was scaled down (and by how much). |
+| Nothing to trade | The cash gap was inside the 5-point tolerance and every holding inside its band; the explanation names the holding closest to its band. |
+
+**Order level.** Each order's trade, target − before, is the *model change* (target − previous
+target) minus *drift* (before − previous target):
+
+- **Drift** splits into what prices did since the previous plan and what the previous plan left
+  undone (a turnover or cash cap, or an order that was rejected or did not fill). Residuals of a
+  band or of the minimum trade are older price drift.
+- **Model change** splits in log space: ln(target₁ / target₀) = exposure ln(E₁/E₀) + sector share
+  ln((B₁/E₁)/(B₀/E₀)) + trend ln(t₁/t₀) + momentum ln(m₁/m₀) − vol_power · ln(σ₁/σ₀) + a
+  remainder (peers in the sector, caps, pruning), where E is target exposure (times any volatility
+  scaling), B the sector budget, t and m the name's trend and momentum multipliers and σ its
+  volatility. Each piece's share of the log change is applied to the model change in weight
+  points.
+- The order's driver is the largest piece pushing in the direction of the trade; drift wins when
+  it is larger than the model change. Entries and exits are explained by the name's status:
+  newly eligible, back above the minimum weight, below the minimum weight, excluded, no longer in
+  the universe, and so on.
+
+Older plans did not record each company's position against the breadth line; with the default
+parameters the trend average and the breadth average have the same length, so the position is
+rebuilt from the trend signal (trend > 0 means above the line). Their band waiver is derived from
+the plan's NAV, cash and target invested weight.
 
 ## 4. Schedule and automation
 
@@ -161,6 +275,8 @@ The backtester runs the **same** strategy, rebalancer and cost model over daily 
 - *Late listings.* Companies enter only once they have enough history; the report lists them.
 - *Execution.* Fills at the open/close plus fixed slippage ignore market impact and intraday
   liquidity — reasonable for these position sizes, not a guarantee.
+- *No AI sector view.* There are no point-in-time AI views for the past: backtests run with the
+  view off, even for a version that consults it.
 - *Short periods.* Annualised figures (CAGR, volatility, Sharpe, Sortino, Calmar, alpha, beta,
   information ratio) are not computed from fewer than 21 trading days and are marked * as
   unreliable below 63 (about three months); even a year of data is a small sample.

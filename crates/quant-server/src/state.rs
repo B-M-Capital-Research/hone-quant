@@ -8,6 +8,7 @@ use quant_core::calendar::MarketCalendar;
 use serde::Serialize;
 use tokio::sync::{Mutex, broadcast};
 
+use crate::ai::llm::ChatModel;
 use crate::auth::LoginLimiter;
 use crate::config::Config;
 use crate::crypto::SecretBox;
@@ -61,6 +62,11 @@ pub enum ServerEvent {
         portfolio_id: i64,
     },
     Universe,
+    /// An AI sector view was formed (or failed).
+    AiView {
+        id: i64,
+        status: String,
+    },
 }
 
 impl ServerEvent {
@@ -74,9 +80,10 @@ impl ServerEvent {
             ServerEvent::Notification { portfolio_id, .. }
             | ServerEvent::Settings { portfolio_id, .. }
             | ServerEvent::Strategy { portfolio_id, .. } => *portfolio_id,
-            ServerEvent::Quotes { .. } | ServerEvent::Backtest { .. } | ServerEvent::Universe => {
-                None
-            }
+            ServerEvent::Quotes { .. }
+            | ServerEvent::Backtest { .. }
+            | ServerEvent::Universe
+            | ServerEvent::AiView { .. } => None,
         }
     }
 }
@@ -94,6 +101,8 @@ pub struct AppState {
     pub limiter: LoginLimiter,
     /// Present in honeclaw sign-in mode: checks honeclaw sessions for every protected request.
     pub honeclaw: Option<Arc<HoneclawVerifier>>,
+    /// The model behind the AI sector view; `None` when none is configured.
+    pub llm: Option<Arc<dyn ChatModel>>,
     /// Serialises everything that mutates the paper account (plan generation, execution,
     /// corporate actions, resets) so two of them can never interleave.
     pub trading_lock: Mutex<()>,

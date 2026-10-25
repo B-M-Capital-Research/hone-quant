@@ -35,7 +35,7 @@ trap 'rm -rf -- "$stage"' EXIT
 dest="$stage/$name"
 mkdir -p "$dest/scripts" "$dest/deploy"
 install -m 0755 target/release/hone-quant "$dest/hone-quant"
-install -m 0755 scripts/backup.sh scripts/deploy.sh scripts/install-host.sh scripts/hq.sh "$dest/scripts/"
+install -m 0755 scripts/backup.sh scripts/copy-ontology.sh scripts/deploy.sh scripts/install-host.sh scripts/hq.sh "$dest/scripts/"
 cp -R deploy/systemd deploy/postgres deploy/caddy deploy/runtime.env.example "$dest/deploy/"
 cat > "$dest/RELEASE" <<META
 name=$name

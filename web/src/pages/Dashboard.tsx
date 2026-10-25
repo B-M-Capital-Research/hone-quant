@@ -8,6 +8,7 @@ import { fmtTime } from "@/lib/format";
 import { onPortfolioEvent } from "@/lib/portfolio";
 import "@/styles/overview.css";
 import { ASSET_RANGES, AssetChart, type AssetRange } from "./overview/AssetChart";
+import { ExposurePanel } from "./overview/ExposurePanel";
 import { Holdings } from "./overview/Holdings";
 import { KpiStrip } from "./overview/KpiStrip";
 import { MarketBoard } from "./overview/MarketBoard";
@@ -174,7 +175,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <Holdings valuation={d().valuation} targets={targets()} board={board.latest} onPick={pick} />
+          <Show when={d().exposure}>{(view) => <ExposurePanel view={view()} />}</Show>
+          <Holdings valuation={d().valuation} targets={targets()} board={board.latest} exposure={d().exposure} onPick={pick} />
         </div>
       )}
     </Show>

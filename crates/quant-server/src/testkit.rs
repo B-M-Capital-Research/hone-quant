@@ -68,6 +68,7 @@ pub async fn state_at(now: DateTime<Utc>) -> Option<(TestDb, Arc<AppState>)> {
         base_path: String::new(),
         auth: AuthMode::Local,
         origin_token: None,
+        ai: Default::default(),
     };
     let (events, _) = tokio::sync::broadcast::channel(256);
     let state = Arc::new(AppState {
@@ -81,6 +82,7 @@ pub async fn state_at(now: DateTime<Utc>) -> Option<(TestDb, Arc<AppState>)> {
         http: reqwest::Client::new(),
         limiter: LoginLimiter::default(),
         honeclaw: None,
+        llm: None,
         trading_lock: tokio::sync::Mutex::new(()),
         started_at: now,
     });

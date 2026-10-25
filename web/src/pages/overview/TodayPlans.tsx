@@ -6,6 +6,7 @@ import { locale, tpl } from "@/i18n";
 import { common } from "@/i18n/common";
 import { overviewText } from "@/i18n/overview";
 import { api } from "@/lib/api";
+import { WhyLine } from "../plans/Why";
 import { fmtCountdown, fmtDual, fmtMoney, fmtPct, fmtQty, toNumber } from "@/lib/format";
 import { canTrade } from "@/lib/portfolio";
 import { serverNow } from "@/lib/session";
@@ -61,6 +62,7 @@ export function TodayPlans(props: { market: MarketView; plans: PlanWithOrders[];
   const isToday = () => m().today?.date === m().schedule_date;
   const manual = createMemo(() => props.plans.filter((p) => p.slot === "manual"));
   const ordersOf = (id: number) => props.plans.find((p) => p.id === id)?.orders ?? [];
+  const headlineOf = (id: number) => props.plans.find((p) => p.id === id)?.headline;
   const slotName = (slot: string) => c().slot[slot as "open" | "close" | "manual"] ?? slot;
 
   const canCancelDay = createMemo(() => {
@@ -178,9 +180,10 @@ export function TodayPlans(props: { market: MarketView; plans: PlanWithOrders[];
             </span>
           </div>
         </Show>
-        <Show when={plan().status === "no_action"}>
+        <Show when={plan().status === "no_action" && !headlineOf(plan().id)}>
           <p class="muted xs">{t().plans.no_action}</p>
         </Show>
+        <WhyLine headline={headlineOf(plan().id)} n={2} wrap />
         <Show when={plan().status === "pending"}>
           <p class="xs slot-when">
             <Icon name="clock" size={13} />

@@ -13,6 +13,12 @@
 //!
 //! Only prices are used — no fundamentals, no stock selection. Every intermediate number is
 //! returned in the diagnostics so a plan can always be explained after the fact.
+//!
+//! The one outside input is an optional **sector view** per sector ([`SectorView`], produced by
+//! the server's AI analyst from the ontology and objective data): a bounded multiplier on the
+//! sector's score in step 2 ([`AiParams::multiplier`]). It changes no name's score, no cap and
+//! not the breadth exposure target (a volatility ceiling, applied afterwards, sees the tilted
+//! weights), and the caller decides whether to pass it at all ([`AiMode`]).
 
 use std::collections::BTreeMap;
 
@@ -182,6 +188,70 @@ impl Default for RebalanceParams {
     }
 }
 
+/// Whether plans consult the AI sector view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiMode {
+    /// The view is not consulted.
+    #[default]
+    Off,
+    /// Plans trade without the view; the targets it would have produced are recorded next to
+    /// them, so its effect can be measured forward before it is trusted.
+    Shadow,
+    /// Plans trade with the view applied; the targets without it are recorded next to them.
+    Live,
+}
+
+/// An outside view on one sector: `stance` from −2 (lean away) to +2 (lean in), `confidence`
+/// from 0 to 1.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SectorView {
+    pub stance: i8,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AiParams {
+    pub mode: AiMode,
+    /// Largest change a view makes to a sector's score: stance ±2 at full confidence multiplies
+    /// it by 1 ± max_tilt. Sector floors and caps, the single-name cap and volatility targeting
+    /// still apply afterwards.
+    pub max_tilt: f64,
+    /// Views below this confidence are ignored.
+    pub min_confidence: f64,
+    /// A view older than this many calendar days is ignored (the plan runs without it).
+    pub max_age_days: u32,
+}
+
+impl Default for AiParams {
+    fn default() -> Self {
+        Self {
+            mode: AiMode::Off,
+            max_tilt: 0.25,
+            min_confidence: 0.5,
+            max_age_days: 5,
+        }
+    }
+}
+
+impl AiParams {
+    /// Multiplier on a sector's score: `1 + max_tilt × stance/2 × confidence`, or 1 when the
+    /// view is neutral or below the confidence floor.
+    pub fn multiplier(&self, view: &SectorView) -> f64 {
+        let stance = f64::from(view.stance.clamp(-2, 2)) / 2.0;
+        let confidence = if view.confidence.is_finite() {
+            view.confidence.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        if stance == 0.0 || confidence < self.min_confidence {
+            return 1.0;
+        }
+        1.0 + self.max_tilt.clamp(0.0, 0.5) * stance * confidence
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct StrategyParams {
@@ -190,6 +260,7 @@ pub struct StrategyParams {
     pub asset: AssetParams,
     pub exposure: ExposureParams,
     pub rebalance: RebalanceParams,
+    pub ai: AiParams,
 }
 
 /// A structured validation problem; `path` is a dotted field path the UI can map to a control.
@@ -363,6 +434,11 @@ impl StrategyParams {
             1_000_000.0,
         );
         c.f("rebalance.max_turnover", r.max_turnover, 0.01, 2.0);
+
+        let ai = &self.ai;
+        c.f("ai.max_tilt", ai.max_tilt, 0.0, 0.5);
+        c.f("ai.min_confidence", ai.min_confidence, 0.0, 1.0);
+        c.u("ai.max_age_days", ai.max_age_days as usize, 1, 30);
 
         if c.0.is_empty() { Ok(()) } else { Err(c.0) }
     }
@@ -584,6 +660,9 @@ pub struct EngineInput<'a> {
     pub excluded: &'a [bool],
     /// Names the operator locked (or with suspicious data): keep the current weight, never trade.
     pub frozen: &'a [bool],
+    /// Outside views by sector id, applied through [`AiParams::multiplier`] as given (empty:
+    /// none). Whether to pass them is the caller's decision, see [`AiMode`].
+    pub sector_views: &'a BTreeMap<String, SectorView>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -608,6 +687,12 @@ pub struct AssetDiagnostics {
     pub momentum_rank: Option<f64>,
     /// price / SMA(trend) − 1.
     pub trend: Option<f64>,
+    /// price / SMA(breadth) − 1: this name's distance to the line breadth counts it against.
+    /// `None` when breadth scaling is off or the name is not counted (not active, or fewer than
+    /// `breadth_sma` points including the decision price).
+    pub breadth_gap: Option<f64>,
+    /// Whether the name counts as above its breadth line (`price > SMA(breadth)`).
+    pub above_breadth_line: Option<bool>,
     pub momentum_multiplier: f64,
     pub trend_multiplier: f64,
     pub score: f64,
@@ -623,6 +708,10 @@ pub struct SectorDiagnostics {
     pub momentum: Option<f64>,
     pub momentum_rank: Option<f64>,
     pub trend_factor: f64,
+    /// The outside view's stance, when one was given for this sector.
+    pub ai_stance: Option<i8>,
+    /// Multiplier the view applied to the score (1 without one).
+    pub ai_multiplier: f64,
     pub score: f64,
     pub cap: f64,
     pub budget: f64,
@@ -735,6 +824,8 @@ pub fn compute_targets(params: &StrategyParams, input: &EngineInput) -> TargetRe
     let mut vol = vec![None; n];
     let mut momentum = vec![None; n];
     let mut trend = vec![None; n];
+    let mut breadth_gap = vec![None; n];
+    let mut above_line = vec![None; n];
     let mut above_breadth_line = Vec::new();
     for i in 0..n {
         if status[i] != AssetStatus::Active {
@@ -751,6 +842,8 @@ pub fn compute_targets(params: &StrategyParams, input: &EngineInput) -> TargetRe
             && let Some(ma) = stats::sma(s, ep.breadth_sma)
         {
             above_breadth_line.push(if price > ma { 1.0 } else { 0.0 });
+            breadth_gap[i] = Some(price / ma - 1.0);
+            above_line[i] = Some(price > ma);
         }
     }
 
@@ -872,6 +965,8 @@ pub fn compute_targets(params: &StrategyParams, input: &EngineInput) -> TargetRe
                 momentum: index_momentum,
                 momentum_rank: None,
                 trend_factor,
+                ai_stance: None,
+                ai_multiplier: 1.0,
                 score: 0.0,
                 cap,
                 budget: 0.0,
@@ -883,6 +978,11 @@ pub fn compute_targets(params: &StrategyParams, input: &EngineInput) -> TargetRe
         for (k, diag) in sector_diag.iter_mut().enumerate() {
             diag.momentum_rank = sector_ranks[k];
             sector_scores[k] *= tilt(sector_ranks[k], sp.momentum_tilt);
+            if let Some(view) = input.sector_views.get(&diag.sector) {
+                diag.ai_stance = Some(view.stance);
+                diag.ai_multiplier = params.ai.multiplier(view);
+                sector_scores[k] *= diag.ai_multiplier;
+            }
             diag.score = sector_scores[k];
         }
         let budgets =
@@ -967,6 +1067,8 @@ pub fn compute_targets(params: &StrategyParams, input: &EngineInput) -> TargetRe
             momentum: momentum[i],
             momentum_rank: momentum_ranks[i],
             trend: trend[i],
+            breadth_gap: breadth_gap[i],
+            above_breadth_line: above_line[i],
             momentum_multiplier: momentum_multiplier[i],
             trend_multiplier: trend_multiplier[i],
             score: score[i],
@@ -1033,6 +1135,7 @@ mod tests {
         assets: Vec<AssetMeta>,
         history: Vec<Vec<f64>>,
         current: Vec<f64>,
+        views: BTreeMap<String, SectorView>,
     }
 
     impl Fixture {
@@ -1054,6 +1157,7 @@ mod tests {
                 assets,
                 history,
                 current,
+                views: BTreeMap::new(),
             }
         }
 
@@ -1094,6 +1198,7 @@ mod tests {
                     current_weights: &current_weights,
                     excluded: &excluded,
                     frozen: &frozen,
+                    sector_views: &self.views,
                 },
             )
         }
@@ -1122,6 +1227,42 @@ mod tests {
         let mut params = StrategyParams::default();
         params.asset.max_weight = 0.2;
         params
+    }
+
+    /// FNV-1a over the exact bits of the target weights and statuses for every preset, with and
+    /// without holdings, exclusions and locks. Recorded before the plan explanations were added:
+    /// diagnostics may grow, the weights may not change.
+    /// A weight to twelve decimals: libm's `pow`, `exp` and `sin` may differ in the last bit
+    /// between platforms (macOS and glibc), which must not change the fingerprint.
+    fn quantized(x: f64) -> u64 {
+        (x * 1e12).round() as i64 as u64
+    }
+
+    #[test]
+    fn target_weights_are_unchanged_by_diagnostics() {
+        let fixture = universe();
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut feed = |bits: u64| {
+            for byte in bits.to_le_bytes() {
+                hash ^= byte as u64;
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+        };
+        let held = [0.1, 0.0, 0.05, 0.02, 0.0, 0.08, 0.0, 0.01];
+        for p in presets() {
+            for result in [
+                fixture.run(&p.params),
+                fixture.run_with(&p.params, &["MU"], &["VST"], &held),
+            ] {
+                for (w, a) in result.weights.iter().zip(&result.assets) {
+                    feed(quantized(*w));
+                    feed(a.status as u64);
+                }
+                feed(quantized(result.exposure_target));
+                feed(quantized(result.breadth.unwrap_or(-1.0)));
+            }
+        }
+        assert_eq!(hash, 0x5e95_a6ef_d4d1_f122, "fingerprint {hash:#x}");
     }
 
     #[test]
@@ -1178,6 +1319,105 @@ mod tests {
             assert!(sector.weight <= params.sector.max_weight + 1e-9);
         }
         assert!((result.cash_weight - (1.0 - total)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn ai_multiplier_is_bounded_and_respects_the_confidence_floor() {
+        let ai = AiParams::default();
+        let view = |stance, confidence| SectorView { stance, confidence };
+        assert_eq!(ai.multiplier(&view(0, 1.0)), 1.0);
+        assert!((ai.multiplier(&view(2, 1.0)) - 1.25).abs() < 1e-12);
+        assert!((ai.multiplier(&view(-2, 1.0)) - 0.75).abs() < 1e-12);
+        assert!((ai.multiplier(&view(1, 0.8)) - 1.1).abs() < 1e-12);
+        // Below the floor, out of range or not a number: no effect, or clamped.
+        assert_eq!(ai.multiplier(&view(2, 0.4)), 1.0);
+        assert_eq!(ai.multiplier(&view(2, f64::NAN)), 1.0);
+        assert!((ai.multiplier(&view(9, 7.0)) - 1.25).abs() < 1e-12);
+        let wide = AiParams {
+            max_tilt: 3.0,
+            ..AiParams::default()
+        };
+        assert!((wide.multiplier(&view(-2, 1.0)) - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn sector_views_tilt_only_sector_budgets() {
+        let mut fixture = universe();
+        let mut params = fixture_params();
+        params.sector.min_weight = 0.0;
+        params.sector.max_weight = 1.0;
+        params.asset.max_weight = 0.5;
+        let base = fixture.run(&params);
+        fixture.views = BTreeMap::from([
+            (
+                "power".to_string(),
+                SectorView {
+                    stance: 2,
+                    confidence: 1.0,
+                },
+            ),
+            (
+                "storage".to_string(),
+                SectorView {
+                    stance: -2,
+                    confidence: 1.0,
+                },
+            ),
+        ]);
+        let tilted = fixture.run(&params);
+        let sector =
+            |r: &TargetResult, id: &str| r.sectors.iter().find(|s| s.sector == id).unwrap().clone();
+        assert!(sector(&tilted, "power").budget > sector(&base, "power").budget);
+        assert!(sector(&tilted, "storage").budget < sector(&base, "storage").budget);
+        assert_eq!(sector(&tilted, "power").ai_stance, Some(2));
+        assert!((sector(&tilted, "power").ai_multiplier - 1.25).abs() < 1e-12);
+        assert_eq!(sector(&tilted, "ai-chip").ai_stance, None);
+        assert_eq!(sector(&tilted, "ai-chip").ai_multiplier, 1.0);
+        // Exposure is untouched, and so are the proportions of names inside a sector.
+        assert!((tilted.invested - base.invested).abs() < 1e-9);
+        let weight = |r: &TargetResult, symbol: &str| {
+            r.assets.iter().find(|a| a.symbol == symbol).unwrap().weight
+        };
+        let ratio = |r: &TargetResult| weight(r, "VST") / weight(r, "CEG");
+        assert!((ratio(&tilted) - ratio(&base)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn neutral_views_change_nothing() {
+        let mut fixture = universe();
+        let params = StrategyParams::default();
+        let base = fixture.run(&params);
+        fixture.views = ["ai-chip", "storage", "power", "space"]
+            .iter()
+            .map(|s| {
+                (
+                    s.to_string(),
+                    SectorView {
+                        stance: 0,
+                        confidence: 1.0,
+                    },
+                )
+            })
+            .collect();
+        let neutral = fixture.run(&params);
+        assert_eq!(base.weights, neutral.weights);
+    }
+
+    #[test]
+    fn ai_params_validate() {
+        let input = serde_json::json!({ "ai": { "mode": "shadow", "max_tilt": 0.6 } });
+        let errors = StrategyParams::from_json_strict(&input).unwrap_err();
+        assert!(errors.iter().any(|e| e.path == "ai.max_tilt"));
+        let input = serde_json::json!({ "ai": { "mode": "live", "max_age_days": 0 } });
+        let errors = StrategyParams::from_json_strict(&input).unwrap_err();
+        assert!(errors.iter().any(|e| e.path == "ai.max_age_days"));
+        let input = serde_json::json!({ "ai": { "mode": "live" } });
+        let params = StrategyParams::from_json_strict(&input).unwrap();
+        assert_eq!(params.ai.mode, AiMode::Live);
+        // Versions stored before the AI view existed load with it switched off.
+        let old: StrategyParams =
+            serde_json::from_value(serde_json::json!({"sector": {}})).unwrap();
+        assert_eq!(old.ai, AiParams::default());
     }
 
     #[test]
@@ -1278,6 +1518,28 @@ mod tests {
         let result = fixture.run(&params);
         assert_eq!(result.breadth, Some(0.0));
         assert!((result.exposure_target - params.exposure.min_exposure).abs() < 1e-12);
+    }
+
+    #[test]
+    fn breadth_is_the_share_of_names_recorded_above_the_line() {
+        let fixture = universe();
+        let result = fixture.run(&fixture_params());
+        let counted: Vec<bool> = result
+            .assets
+            .iter()
+            .filter_map(|a| a.above_breadth_line)
+            .collect();
+        assert_eq!(counted.len(), 8);
+        let above = counted.iter().filter(|&&x| x).count() as f64;
+        assert!((result.breadth.unwrap() - above / 8.0).abs() < 1e-12);
+        for a in &result.assets {
+            assert_eq!(a.above_breadth_line, a.breadth_gap.map(|g| g > 0.0));
+        }
+        // Without breadth scaling nothing is recorded.
+        let mut params = fixture_params();
+        params.exposure.breadth_scaling = false;
+        let result = fixture.run(&params);
+        assert!(result.assets.iter().all(|a| a.above_breadth_line.is_none()));
     }
 
     #[test]

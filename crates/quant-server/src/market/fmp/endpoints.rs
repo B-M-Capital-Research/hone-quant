@@ -40,6 +40,7 @@ pub(super) enum Family {
     Intraday,
     Splits,
     Dividends,
+    Earnings,
 }
 
 impl Family {
@@ -51,6 +52,7 @@ impl Family {
             Family::Intraday => "intraday",
             Family::Splits => "splits",
             Family::Dividends => "dividends",
+            Family::Earnings => "earnings",
         }
     }
 }
@@ -247,6 +249,20 @@ pub(super) fn splits(api: ApiKind, symbol: &str) -> Request {
             "/api/v3/historical-price-full/stock_split/{}",
             encode(symbol)
         )),
+    }
+}
+
+/// The last and the next few quarterly reports of one company.
+pub(super) fn earnings(api: ApiKind, symbol: &str) -> Request {
+    match api {
+        ApiKind::Stable => Request::new("/stable/earnings")
+            .param("symbol", encode(symbol))
+            .param("limit", "10"),
+        ApiKind::Legacy => Request::new(format!(
+            "/api/v3/historical/earning_calendar/{}",
+            encode(symbol)
+        ))
+        .param("limit", "10"),
     }
 }
 

@@ -45,6 +45,17 @@ impl OrderReason {
     }
 }
 
+/// Which side's name-level bands a plan waived because the portfolio as a whole was more than
+/// [`CASH_BAND`] away from its target invested weight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BandWaiver {
+    /// Under-invested: every name below target buys, whatever its own band.
+    Buys,
+    /// Over-invested: every name above target sells, whatever its own band.
+    Sells,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SkipReason {
@@ -66,6 +77,8 @@ pub struct OrderIntent {
     pub weight_before: f64,
     pub weight_target: f64,
     pub weight_after: f64,
+    /// The name's drift was inside its own band; it trades only because of the band waiver.
+    pub band_waived: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,6 +104,12 @@ pub struct RebalancePlan {
     pub cash_after: f64,
     pub turnover_scale: Option<f64>,
     pub cash_scale: Option<f64>,
+    /// Invested weight before trading, and the target invested weight (Σ targets).
+    pub invested_now: f64,
+    pub invested_target: f64,
+    /// `invested_target − invested_now`, compared with [`CASH_BAND`].
+    pub cash_gap: f64,
+    pub band_waiver: Option<BandWaiver>,
 }
 
 pub struct RebalanceInput<'a> {
@@ -121,6 +140,7 @@ struct Candidate {
     asset: usize,
     delta_weight: f64,
     exit: bool,
+    band_waived: bool,
 }
 
 pub fn rebalance(
@@ -181,6 +201,7 @@ pub fn rebalance(
                 asset: i,
                 delta_weight: -current,
                 exit: true,
+                band_waived: false,
             });
             continue;
         }
@@ -199,6 +220,7 @@ pub fn rebalance(
             asset: i,
             delta_weight: drift,
             exit: false,
+            band_waived: holding && waived && drift.abs() <= band,
         });
     }
 
@@ -242,6 +264,7 @@ pub fn rebalance(
                 weight_before: current,
                 weight_target: 0.0,
                 weight_after: 0.0,
+                band_waived: false,
             });
             continue;
         }
@@ -293,6 +316,7 @@ pub fn rebalance(
             weight_before: current,
             weight_target: target,
             weight_after: 0.0,
+            band_waived: candidate.band_waived,
         };
         match side {
             Side::Sell => sells.push(order),
@@ -407,6 +431,16 @@ pub fn rebalance(
         cash_after,
         turnover_scale,
         cash_scale,
+        invested_now,
+        invested_target,
+        cash_gap: gap,
+        band_waiver: if waive_for_buys {
+            Some(BandWaiver::Buys)
+        } else if waive_for_sells {
+            Some(BandWaiver::Sells)
+        } else {
+            None
+        },
     }
 }
 
@@ -484,18 +518,45 @@ mod tests {
         assert!(
             plan.orders
                 .iter()
-                .all(|o| o.side == Side::Buy && o.qty == 15.0)
+                .all(|o| o.side == Side::Buy && o.qty == 15.0 && o.band_waived)
         );
+        assert_eq!(plan.band_waiver, Some(BandWaiver::Buys));
+        assert!((plan.invested_now - 0.75).abs() < 1e-12);
+        assert!((plan.cash_gap - 0.15).abs() < 1e-12);
 
         // Within the cash band (86% vs 90%), the name bands apply again.
         let qty = [86.0; 10];
         let plan = run(14_000.0, &qty, &prices, &targets, &params());
         assert!(plan.orders.is_empty());
+        assert_eq!(plan.band_waiver, None);
         assert!(
             plan.skipped
                 .iter()
                 .all(|s| s.reason == SkipReason::WithinBand)
         );
+    }
+
+    #[test]
+    fn an_over_invested_portfolio_records_the_sell_side_waiver() {
+        // Held at 9% each (90%) against 8.5% targets (85%): each 0.5pt drift is inside its
+        // 2.1pt band, but the portfolio is 5pt over target, just past the cash band.
+        let qty = [90.0; 10];
+        let prices = [100.0; 10];
+        let targets = [0.0849; 10];
+        let plan = run(10_000.0, &qty, &prices, &targets, &params());
+        assert_eq!(plan.band_waiver, Some(BandWaiver::Sells));
+        assert!(plan.cash_gap < -CASH_BAND);
+        assert!(
+            plan.orders
+                .iter()
+                .all(|o| o.side == Side::Sell && o.band_waived)
+        );
+        // A name far outside its band trades on its own merits, not because of the waiver.
+        let mut targets = targets;
+        targets[0] = 0.04;
+        let plan = run(10_000.0, &qty, &prices, &targets, &params());
+        let first = plan.orders.iter().find(|o| o.asset == 0).unwrap();
+        assert!(!first.band_waived);
     }
 
     #[test]

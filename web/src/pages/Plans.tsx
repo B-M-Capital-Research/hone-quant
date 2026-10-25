@@ -10,9 +10,10 @@ import { MARKET_TZ, fmtDate, fmtDual, fmtMoney, fmtPct } from "@/lib/format";
 import { canTrade, onPortfolioEvent } from "@/lib/portfolio";
 import { market, serverNow } from "@/lib/session";
 import { actorName } from "@/lib/names";
-import type { Plan, PlanStatus } from "@/lib/types";
+import type { Headline, Plan, PlanStatus } from "@/lib/types";
 import "@/styles/plans.css";
 import { throttle, weekday } from "./overview/util";
+import { WhyLine } from "./plans/Why";
 
 const PAGE = 50;
 const STATUSES: PlanStatus[] = ["pending", "executing", "executed", "partially_executed", "no_action", "cancelled", "expired", "skipped", "failed"];
@@ -165,6 +166,7 @@ export default function Plans() {
                       <th>{t().list.col_date}</th>
                       <th>{t().list.col_slot}</th>
                       <th>{t().list.col_status}</th>
+                      <th>{t().list.col_why}</th>
                       <th class="r">{t().list.col_orders}</th>
                       <th class="r">{t().list.col_turnover}</th>
                       <th class="r">{t().list.col_costs}</th>
@@ -175,7 +177,7 @@ export default function Plans() {
                     </tr>
                   </thead>
                   <tbody>
-                    <For each={plans.latest!.plans}>{(p) => <PlanRow plan={p} onOpen={() => navigate(`/plans/${p.id}`)} />}</For>
+                    <For each={plans.latest!.plans}>{(p) => <PlanRow plan={p} headline={plans.latest!.headlines?.[p.id]} onOpen={() => navigate(`/plans/${p.id}`)} />}</For>
                   </tbody>
                 </table>
               </div>
@@ -199,7 +201,7 @@ export default function Plans() {
   );
 }
 
-function PlanRow(props: { plan: Plan; onOpen: () => void }) {
+function PlanRow(props: { plan: Plan; headline: Headline | undefined; onOpen: () => void }) {
   const t = plansText;
   const c = common;
   const p = () => props.plan;
@@ -215,6 +217,9 @@ function PlanRow(props: { plan: Plan; onOpen: () => void }) {
       <td class="nowrap">{c().slot[p().slot]}</td>
       <td>
         <PlanStatusChip status={p().status} />
+      </td>
+      <td class="plans-why">
+        <WhyLine headline={props.headline} n={2} />
       </td>
       <td class="r num">
         {p().order_count}

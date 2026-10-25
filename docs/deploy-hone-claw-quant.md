@@ -136,6 +136,45 @@ curl -sS http://127.0.0.1:8090/api/health  # on the VM, no token needed
   other users on the VM can read process arguments.
 - **Start the paper account over.** Settings → Account → reset, with a new starting cash; open
   plans are cancelled and the reset is recorded in the audit log.
+- **AI sector view.** It uses the same Gemini route as hone-claw.com's chat: honeclaw's loopback
+  proxy (`hone-gemini-proxy.service`, OpenAI-compatible, `127.0.0.1:8898`). It reads honeclaw's
+  ontology *with its live edits* (`/srv/honeclaw/data/industry_map/edits.json`, where the newest
+  research is), but `/srv/honeclaw` is private to honeclaw, so a root timer copies the two files
+  into hone-quant's state directory instead of opening honeclaw's permissions:
+
+  ```sh
+  sudo install -m 0644 /opt/hone-quant/current/deploy/systemd/hone-quant-ontology.{service,timer} /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl start hone-quant-ontology.service      # first copy now
+  sudo systemctl enable --now hone-quant-ontology.timer # then every 15 minutes
+  ```
+
+  Then add to `/etc/hone-quant/runtime.env` and restart (or deploy):
+
+  ```sh
+  HONE_QUANT_LLM_BASE_URL=http://127.0.0.1:8898/v1
+  HONE_QUANT_LLM_MODEL=gemini-3.8-flash-medium      # the model honeclaw's gemini_build route serves
+  HONE_QUANT_ONTOLOGY=/var/lib/hone-quant/ontology/industry-map.json
+  HONE_QUANT_ONTOLOGY_EDITS=/var/lib/hone-quant/ontology/edits.json
+  ```
+
+  Test the whole chain with real data as the service user (one model call), then switch a
+  portfolio to shadow mode:
+
+  ```sh
+  run() { sudo systemd-run --quiet --wait --pipe --collect --uid=hone-quant --gid=hone-quant \
+    --property=EnvironmentFile=/etc/hone-quant/runtime.env --setenv=HONE_QUANT_STATE_DIR=/var/lib/hone-quant \
+    --working-directory=/var/lib/hone-quant /opt/hone-quant/current/hone-quant "$@"; }
+  run fmp-check            # includes the earnings endpoint the briefing uses
+  run ai view              # forms a view now and prints it
+  run ai mode --portfolio 1 shadow
+  ```
+
+  Afterwards the scheduler forms one view per trading day 75 minutes before the open, only while
+  some portfolio uses it (at most four model calls in 24 hours, manual runs included). The quota
+  is honeclaw's: check it before switching on (honeclaw's `docs/runbooks/backend-deployment.md`,
+  *Temporary Gemini account authorization*). Read the forward test on the *AI sector view* page
+  before switching a portfolio to live (`ai mode … live`, or the strategy page).
 
 ## Roll back
 

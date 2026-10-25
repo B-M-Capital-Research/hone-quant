@@ -30,7 +30,15 @@ export function Methodology(props: { params: StrategyParams; schedule: ScheduleS
 
     const s1: string[] = [
       e.breadth_scaling
-        ? tpl(h.s1_breadth, { sma: e.breadth_sma, min: pctText(e.min_exposure), max: pctText(e.max_exposure) })
+        ? tpl(h.s1_breadth, {
+            sma: e.breadth_sma,
+            closes: e.breadth_sma - 1,
+            days: p.universe.min_history_days,
+            min: pctText(e.min_exposure),
+            max: pctText(e.max_exposure),
+            min_x: e.min_exposure.toFixed(2),
+            span_x: (e.max_exposure - e.min_exposure).toFixed(2),
+          })
         : tpl(h.s1_fixed, { max: pctText(e.max_exposure) }),
       e.target_vol != null ? tpl(h.s1_vol_on, { vol: pctText(e.target_vol), lookback: e.vol_lookback }) : h.s1_vol_off,
     ];

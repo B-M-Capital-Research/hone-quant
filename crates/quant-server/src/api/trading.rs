@@ -13,7 +13,7 @@ use super::context::{PortfolioCtx, TradeCtx, authorize_account};
 use super::error::{ApiError, ApiResult};
 use crate::auth::{CurrentUser, Role};
 use crate::notify::{self, Event};
-use crate::services::{broker, planner, portfolio};
+use crate::services::{broker, explain, planner, portfolio};
 use crate::state::{ServerEvent, SharedState};
 use crate::store::portfolios;
 use crate::store::settings::{self, AutomationMode, AutomationSettings};
@@ -53,7 +53,10 @@ pub async fn list_plans(
         offset: q.offset.unwrap_or(0).max(0),
     };
     let (plans, total) = trading::list_plans(&client, ctx.account().id, &filter).await?;
-    Ok(Json(json!({"plans": plans, "total": total})))
+    let headlines = explain::headlines(&client, &plans).await?;
+    Ok(Json(
+        json!({"plans": plans, "total": total, "headlines": headlines}),
+    ))
 }
 
 /// A plan is shown and acted on in its own portfolio, whatever portfolio is selected, so links
@@ -64,12 +67,22 @@ pub async fn plan_detail(
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
     let client = state.pool.get().await?;
-    let plan = trading::plan(&client, id)
+    let mut plan = trading::plan(&client, id)
         .await?
         .ok_or_else(|| ApiError::not_found("plan"))?;
     let owner = authorize_account(&state, &user, plan.account_id, false).await?;
     let orders = trading::orders_for_plan(&client, id).await?;
     let diagnostics = trading::plan_diagnostics(&client, id).await?;
+    let explanation = explain::explanation(&client, &plan, &diagnostics).await?;
+    // A slot skipped because generation failed recorded its reason only in the summary before
+    // the error was copied onto the plan; show the failed run's message for those too.
+    if plan.status == "skipped"
+        && plan.error.is_none()
+        && plan.summary.get("skip_reason").and_then(Value::as_str) == Some("error")
+    {
+        let run_key = format!("{}:{}:p{}", plan.trade_date, plan.slot, owner.id);
+        plan.error = system::failed_job_error(&client, "plan", &run_key).await?;
+    }
     let (fills, _) = trading::list_fills(
         &client,
         plan.account_id,
@@ -114,6 +127,7 @@ pub async fn plan_detail(
         "orders": orders,
         "fills": fills,
         "diagnostics": diagnostics,
+        "explanation": explanation,
         "audit": audit,
         "strategy": version,
         "names": names,

@@ -27,7 +27,8 @@ StateDirectoryMode=0700
 UMask=0077
 
 # Hardening: the service only needs outbound HTTPS (market data, notification channels),
-# PostgreSQL and its state directory (the secret key that seals channel credentials).
+# loopback HTTP (the optional AI sector view's model proxy), PostgreSQL and its state directory
+# (the secret key that seals channel credentials).
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

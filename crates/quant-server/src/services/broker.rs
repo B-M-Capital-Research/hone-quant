@@ -214,6 +214,9 @@ async fn execute_claimed(
         costs: 0.0,
     };
 
+    // What each rejected order saw against its limits (shown next to the order).
+    let mut rejections: Vec<serde_json::Value> = Vec::new();
+
     // Orders were stored sells-first; keep that order so sales fund purchases.
     for order in &orders {
         let side = Side::parse(&order.side).ok_or_else(|| anyhow!("bad side {}", order.side))?;
@@ -241,6 +244,15 @@ async fn execute_claimed(
             Err(reason) => {
                 trading::set_order_status(&tx, order.id, "rejected", Some(reason), None).await?;
                 report.rejected += 1;
+                rejections.push(json!({
+                    "symbol": order.symbol,
+                    "reason": reason,
+                    "ref_price": order.ref_price,
+                    "quote": quote.map(|q| q.0),
+                    "quote_age_secs": quote.map(|(_, ts, fetched)| (now - ts.unwrap_or(*fetched)).num_seconds()),
+                    "max_price_deviation": execution.max_price_deviation,
+                    "max_quote_age_secs": execution.max_quote_age_secs,
+                }));
                 continue;
             }
         };
@@ -281,6 +293,13 @@ async fn execute_claimed(
             };
             trading::set_order_status(&tx, order.id, "rejected", Some(reason), None).await?;
             report.rejected += 1;
+            rejections.push(json!({
+                "symbol": order.symbol,
+                "reason": reason,
+                "ref_price": order.ref_price,
+                "quote": quote_price,
+                "cash": f(cash),
+            }));
             continue;
         }
 
@@ -398,7 +417,8 @@ async fn execute_claimed(
         &tx,
         plan.id,
         &json!({"executed": {"filled": report.filled, "partial": report.partial, "rejected": report.rejected,
-                              "bought": report.bought, "sold": report.sold, "costs": report.costs}}),
+                              "bought": report.bought, "sold": report.sold, "costs": report.costs,
+                              "rejections": rejections}}),
     )
     .await?;
     system::audit(

@@ -17,16 +17,19 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use quant_core::explain::{OrderRecord, PlanExplanation, PlanHeader, PlanSnapshot};
 use quant_core::rebalance::{RebalanceInput, RebalancePlan, rebalance};
-use quant_core::strategy::{AssetMeta, EngineInput, StrategyParams, TargetResult, compute_targets};
+use quant_core::strategy::{AiMode, AssetMeta, EngineInput, StrategyParams, TargetResult};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::notify::{self, Event};
-use crate::services::marketdata;
+use crate::services::ai_view::{self, AiApplied};
+use crate::services::{explain, marketdata};
 use crate::state::{AppState, ServerEvent};
 use crate::store::portfolios;
+use crate::store::settings::Lang;
 use crate::store::settings::{self, AutomationMode, ExecutionSettings};
 use crate::store::strategy::{self as strategy_store, StrategyVersion};
 use crate::store::trading::{self, Account, NewPlan, dec, f};
@@ -67,6 +70,8 @@ pub struct Proposal {
     pub quotes: BTreeMap<String, QuoteInfo>,
     pub history_from: Option<NaiveDate>,
     pub history_to: Option<NaiveDate>,
+    /// What the AI sector view did (`None` when the strategy does not consult it).
+    pub ai: Option<AiApplied>,
 }
 
 impl Proposal {
@@ -123,9 +128,76 @@ impl Proposal {
                 "cash_after": self.plan.cash_after,
                 "turnover_scale": self.plan.turnover_scale,
                 "cash_scale": self.plan.cash_scale,
+                "invested_now": self.plan.invested_now,
+                "invested_target": self.plan.invested_target,
+                "cash_gap": self.plan.cash_gap,
+                "cash_band": quant_core::rebalance::CASH_BAND,
+                "band_waiver": self.plan.band_waiver,
+                "band_waived": self.plan.orders.iter().filter(|o| o.band_waived).map(|o| &self.symbols[o.asset]).collect::<Vec<_>>(),
             },
             "history": {"from": self.history_from, "to": self.history_to},
+            "ai": self.ai,
         })
+    }
+}
+
+impl Proposal {
+    /// The proposal as a not-yet-stored plan (orders `planned`), for explanations.
+    pub fn snapshot(
+        &self,
+        diagnostics: &Value,
+        strategy_version_id: Option<i64>,
+    ) -> Option<PlanSnapshot> {
+        let header = PlanHeader {
+            id: 0,
+            status: if self.plan.orders.is_empty() {
+                "no_action".into()
+            } else {
+                "pending".into()
+            },
+            strategy_version_id,
+            nav: self.nav,
+            cash: self.cash,
+            exposure_target: Some(self.targets.exposure_target),
+            invested_target: Some(self.targets.invested),
+            breadth: self.targets.breadth,
+            est_vol: self.targets.est_vol,
+        };
+        let orders = self
+            .plan
+            .orders
+            .iter()
+            .map(|o| OrderRecord {
+                symbol: self.symbols[o.asset].clone(),
+                side: o.side,
+                qty: o.qty,
+                weight_before: o.weight_before,
+                weight_target: o.weight_target,
+                weight_after: o.weight_after,
+                status: "planned".into(),
+                status_reason: None,
+                filled_qty: 0.0,
+            })
+            .collect();
+        PlanSnapshot::from_stored(header, diagnostics, orders)
+    }
+
+    /// Explains the proposal against the account's latest plan with engine output.
+    pub async fn explain(
+        &self,
+        state: &AppState,
+        diagnostics: &Value,
+        strategy_version_id: Option<i64>,
+    ) -> Result<Option<PlanExplanation>> {
+        let Some(current) = self.snapshot(diagnostics, strategy_version_id) else {
+            return Ok(None);
+        };
+        let client = state.pool.get().await?;
+        let previous = explain::previous_snapshot(&client, self.account.id, None).await?;
+        Ok(Some(quant_core::explain::explain(
+            &current,
+            previous.as_ref(),
+        )))
     }
 }
 
@@ -328,8 +400,15 @@ pub async fn build_proposal(
         })
         .collect();
 
+    // The AI sector view, when the strategy consults it.
+    let view = if params.ai.mode == AiMode::Off {
+        None
+    } else {
+        ai_view::usable(&client, &params.ai, trade_date).await?
+    };
+    drop(client);
     let history_refs: Vec<&[f64]> = history.iter().map(|h| h.as_slice()).collect();
-    let targets = compute_targets(
+    let (targets, ai) = ai_view::apply(
         params,
         &EngineInput {
             assets: &assets,
@@ -338,7 +417,10 @@ pub async fn build_proposal(
             current_weights: &current_weights,
             excluded: &excluded_flags,
             frozen: &frozen_flags,
+            sector_views: &BTreeMap::new(),
         },
+        &symbols,
+        view.as_ref(),
     );
     let tradable: Vec<bool> = (0..n)
         .map(|i| !frozen_flags[i] && prices[i].is_finite())
@@ -368,6 +450,7 @@ pub async fn build_proposal(
         quotes,
         history_from: dates.first().copied(),
         history_to: dates.last().copied(),
+        ai,
     })
 }
 
@@ -441,6 +524,30 @@ pub async fn generate(
         "cash_after": proposal.plan.cash_after,
     });
 
+    // Why this plan: compared with the account's previous plan, stored with the diagnostics.
+    let mut diagnostics = proposal.diagnostics(&params, Some(&version));
+    let explanation = proposal
+        .explain(state, &diagnostics, Some(version.id))
+        .await?;
+    let headline = explanation
+        .as_ref()
+        .map(|x| x.headline(explain::HEADLINE_DRIVERS));
+    if let Some(x) = &explanation {
+        diagnostics["explain"] = serde_json::to_value(x)?;
+    }
+    let why = match &headline {
+        Some(h) => {
+            let client = state.pool.get().await?;
+            let names = explain::sector_names(&client).await?;
+            let lookup = explain::sector_lookup(&names);
+            Some((
+                explain::one_line(h, Lang::Zh, &lookup),
+                explain::one_line(h, Lang::En, &lookup),
+            ))
+        }
+        None => None,
+    };
+
     let mut client = state.pool.get().await?;
     let tx = client.transaction().await?;
     let plan_id = trading::insert_plan(
@@ -463,7 +570,7 @@ pub async fn generate(
             turnover: proposal.plan.turnover,
             est_costs: dec(est_costs, 2),
             order_count: proposal.plan.orders.len() as i32,
-            diagnostics: proposal.diagnostics(&params, Some(&version)),
+            diagnostics,
             summary,
             error: None,
             created_by: &request.actor,
@@ -497,7 +604,9 @@ pub async fn generate(
         "plan.generated",
         "plan",
         &plan_id.to_string(),
-        json!({"slot": request.slot, "trade_date": request.trade_date, "orders": proposal.plan.orders.len(), "strategy_version_id": version.id, "mode": mode.as_str(), "portfolio_id": portfolio_id}),
+        json!({"slot": request.slot, "trade_date": request.trade_date, "orders": proposal.plan.orders.len(), "strategy_version_id": version.id, "mode": mode.as_str(), "portfolio_id": portfolio_id,
+            "drivers": headline.as_ref().map(|h| explain::driver_codes(&h.drivers)),
+            "previous_plan_id": headline.as_ref().and_then(|h| h.previous_plan_id)}),
         "",
     )
     .await?;
@@ -532,12 +641,14 @@ pub async fn generate(
             deadline: request.deadline,
             strategy: version.name.clone(),
             preset_id: version.preset_id.clone(),
+            why,
         }
     } else {
         Event::PlanNoAction {
             plan_id,
             trade_date: request.trade_date,
             slot: request.slot.clone(),
+            why,
         }
     };
     if let Err(error) = notify::notify_in(state, &book.portfolio.tag(), event).await {
@@ -551,13 +662,15 @@ pub async fn generate(
 }
 
 /// Records that a portfolio's scheduled slot produced no plan (paused, cancelled by an operator,
-/// or missed while the service was down) so the history has no silent gaps.
+/// missed while the service was down, or an error) so the history has no silent gaps. For an
+/// error, `error` is the failed generation's message, kept on the plan.
 pub async fn record_skipped_slot(
     state: &Arc<AppState>,
     portfolio_id: i64,
     trade_date: NaiveDate,
     slot: &str,
     reason: &str,
+    error: Option<String>,
     deadline: DateTime<Utc>,
 ) -> Result<Option<i64>> {
     let client = state.pool.get().await?;
@@ -587,7 +700,7 @@ pub async fn record_skipped_slot(
             order_count: 0,
             diagnostics: json!({}),
             summary: json!({"skip_reason": reason}),
-            error: None,
+            error,
             created_by: "system",
         },
     )
