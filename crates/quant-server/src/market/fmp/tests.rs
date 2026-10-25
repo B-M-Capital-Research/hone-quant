@@ -1358,6 +1358,11 @@ async fn diagnose_probes_every_family_on_both_generations() {
             }
             "/stable/splits" => ok(fixture!("stable_splits.json")),
             "/stable/dividends" => ok(fixture!("stable_dividends.json")),
+            "/stable/earnings" => ok(json!([
+                {"symbol": "AAPL", "date": "2026-10-29", "epsActual": null, "epsEstimated": 1.9},
+                {"symbol": "AAPL", "date": "2026-07-30", "epsActual": 1.6, "epsEstimated": 1.4},
+            ])
+            .to_string()),
             _ => fail(404, ""),
         }
     })
@@ -1385,6 +1390,8 @@ async fn diagnose_probes_every_family_on_both_generations() {
             ("splits", "legacy", false),
             ("dividends", "stable", true),
             ("dividends", "legacy", false),
+            ("earnings", "stable", true),
+            ("earnings", "legacy", false),
         ]
     );
     let detail = |endpoint: &str, api: &str| -> String {
@@ -1396,6 +1403,8 @@ async fn diagnose_probes_every_family_on_both_generations() {
     };
     assert_eq!(detail("quote", "stable"), "1 row, AAPL at 100");
     assert_eq!(detail("batch quote", "stable"), "2 rows");
+    // The latest *reported* quarter, not the scheduled one.
+    assert_eq!(detail("earnings", "stable"), "2 rows, latest 2026-07-30");
     assert!(detail("daily", "stable").starts_with("2 rows, latest 20"));
     let intraday = detail("intraday 5min", "stable");
     assert!(
