@@ -1,0 +1,128 @@
+/* AI sector view: /ai and the plan detail's AI tab. */
+
+.ai-page {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.ai-page .callout p {
+  margin: 4px 0 0;
+}
+
+.ai-pad {
+  margin: 0;
+  padding: 12px 16px;
+}
+
+.ai-pad-top {
+  margin: 12px 0 6px;
+}
+
+.ai-summary {
+  margin: 0;
+  padding: 12px 16px 8px;
+  line-height: 1.6;
+}
+
+.ai-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 20px;
+  margin: 0 0 14px;
+}
+
+.ai-facts dt {
+  font-size: 12px;
+  color: var(--hone-ink-500);
+}
+
+.ai-facts dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-users .pill-list {
+  margin-top: 6px;
+}
+
+.ai-row {
+  cursor: pointer;
+}
+
+.ai-row td:first-child svg {
+  margin-right: 4px;
+  vertical-align: -1px;
+  color: var(--hone-ink-500);
+}
+
+.ai-why {
+  min-width: 240px;
+  line-height: 1.5;
+}
+
+.ai-subrow td {
+  background: var(--hone-ink-50, transparent);
+}
+
+.ai-detail {
+  display: grid;
+  gap: 6px;
+  padding: 4px 0 6px 18px;
+}
+
+.ai-detail p {
+  margin: 0;
+}
+
+.ai-flag {
+  color: var(--hone-ink-600);
+}
+
+.ai-evidence {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-evidence li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-evidence li .chip {
+  flex: none;
+}
+
+.ai-evidence li .num {
+  flex: none;
+}
+
+.ai-material {
+  display: grid;
+  gap: 6px;
+}
+
+.ai-material pre {
+  max-height: 360px;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 6px;
+  background: var(--hone-ink-50, rgba(127, 127, 127, 0.08));
+}
+
+.ai-plan-head {
+  gap: 10px;
+  align-items: center;
+  padding: 12px 16px 0;
+}

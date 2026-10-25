@@ -166,6 +166,12 @@ export const api = {
   deleteBacktest: (id: number) => del<{ ok: boolean }>(`/backtests/${id}`),
   performance: (range: string) => get<T.Performance>(`/performance${qs({ range })}`),
 
+  // AI sector view
+  ai: () => get<T.AiOverview>("/ai"),
+  aiView: (id: number) => get<{ view: T.AiView }>(`/ai/views/${id}`),
+  generateAiView: () => post<{ started: boolean }>("/ai/views/generate"),
+  aiEvaluation: () => get<{ evaluation: T.AiEvaluation }>("/ai/evaluation"),
+
   // System
   notifications: (q: { unread?: boolean; category?: string; before?: number; limit?: number }) =>
     get<{ notifications: T.NotificationRow[]; unread: number }>(`/notifications${qs(q)}`),

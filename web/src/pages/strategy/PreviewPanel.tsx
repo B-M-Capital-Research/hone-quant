@@ -8,7 +8,9 @@ import { plansText } from "@/i18n/plans";
 import { strategyText } from "@/i18n/strategy";
 import { driverChip, driverText, driverTone, oneLine } from "@/lib/explain";
 import { OrderWhyCell } from "../plans/Why";
+import { PlanAiPanel } from "../ai/components";
 import "@/styles/plans.css";
+import "@/styles/ai.css";
 import { DASH, fmtDual, fmtMoney, fmtNum, fmtPct, fmtPrice, fmtQty, fmtWeight } from "@/lib/format";
 import type { Asset, AssetDiagnostics, AssetStatus, Preview, Sector, UniverseView } from "@/lib/types";
 import { compact } from "./params";
@@ -177,6 +179,14 @@ export function PreviewPanel(props: {
       <p class="xs muted st-method-note">
         {tpl(t().preview.method, { from: r().history.from ?? DASH, to: r().history.to ?? DASH })} {fmtDual(r().as_of, true)}
       </p>
+
+      <Show when={r().ai}>
+        {(ai) => (
+          <div class="card st-ai-preview">
+            <PlanAiPanel ai={ai()} sectors={props.universe?.sectors} />
+          </div>
+        )}
+      </Show>
 
       <Show when={r().explanation}>
         {(x) => (

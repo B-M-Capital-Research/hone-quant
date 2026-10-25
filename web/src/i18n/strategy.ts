@@ -41,6 +41,7 @@ const zh = {
     sector: "板块预算",
     asset: "个股权重",
     rebalance: "调仓规则",
+    ai: "AI 板块观点",
   },
   group_hints: {
     universe: "哪些公司有资格参与配置",
@@ -48,6 +49,7 @@ const zh = {
     sector: "先在 10 个板块之间分配预算",
     asset: "再把板块预算分给板块内的公司",
     rebalance: "什么时候交易、交易多少",
+    ai: "AI 读本体研究与客观数据，在有限幅度内倾斜板块预算",
   },
   fields: {
     "universe.min_history_days": { label: "最少历史天数", hint: "连续日线不足此数的公司（如新上市）暂不参与配置" },
@@ -82,6 +84,10 @@ const zh = {
     "rebalance.min_trade_value": { label: "最小交易额", hint: "低于此金额的交易跳过（清仓除外）" },
     "rebalance.max_turnover": { label: "单次换手上限", hint: "每个计划的单边换手上限，清仓不受限" },
     "rebalance.fractional_shares": { label: "允许碎股", hint: "关闭时按整股下单" },
+    "ai.mode": { label: "AI 板块观点", hint: "关闭：不参考；影子：照常交易，同时记录采纳观点会怎样，用于前瞻检验；实盘：按观点调整板块预算" },
+    "ai.max_tilt": { label: "最大倾斜", hint: "观点 ±2、置信度 100% 时板块得分乘以 1 ± 此值；之后板块上下限、单股上限照常生效" },
+    "ai.min_confidence": { label: "最低置信度", hint: "置信度低于此值的观点不采用" },
+    "ai.max_age_days": { label: "观点有效期", hint: "观点所依据的收盘日早于此天数（自然日）时不再采用，计划按纯规则生成" },
   },
   values: {
     on: "开启",
@@ -89,6 +95,11 @@ const zh = {
     not_set: "未启用",
     budgets_none: "未设置",
     budgets_count: "{n} 个板块",
+  },
+  ai_modes: {
+    off: "关闭",
+    shadow: "影子",
+    live: "实盘",
   },
   view: {
     parameter: "参数",
@@ -113,6 +124,8 @@ const zh = {
     bands: "容忍带",
     bands_value: "{abs} / {rel}",
     min_trade: "最小交易",
+    ai: "AI 观点",
+    ai_value: "{mode} · 最大倾斜 {tilt}",
   },
   active: {
     title: "当前启用的策略",
@@ -408,6 +421,7 @@ const en: typeof zh = {
     sector: "Sector budgets",
     asset: "Single names",
     rebalance: "Rebalancing",
+    ai: "AI sector view",
   },
   group_hints: {
     universe: "Which companies are eligible",
@@ -415,6 +429,7 @@ const en: typeof zh = {
     sector: "Budgets across the 10 sectors come first",
     asset: "Then each budget is split among the sector's companies",
     rebalance: "When to trade and how much",
+    ai: "AI reads the ontology's research and objective data and tilts sector budgets within bounds",
   },
   fields: {
     "universe.min_history_days": { label: "Minimum history", hint: "Companies with fewer consecutive daily closes (e.g. recent listings) are not allocated yet" },
@@ -449,6 +464,10 @@ const en: typeof zh = {
     "rebalance.min_trade_value": { label: "Minimum trade", hint: "Smaller trades are skipped (full exits always trade)" },
     "rebalance.max_turnover": { label: "Turnover cap per plan", hint: "One-way turnover ceiling per plan; exits are exempt" },
     "rebalance.fractional_shares": { label: "Fractional shares", hint: "When off, orders are whole shares" },
+    "ai.mode": { label: "AI sector view", hint: "Off: not consulted · Shadow: trade as usual and record what the view would have done, to test it forward · Live: sector budgets follow the view" },
+    "ai.max_tilt": { label: "Maximum tilt", hint: "At stance ±2 and 100% confidence a sector's score is multiplied by 1 ± this; sector floors and caps and the single-name cap still apply" },
+    "ai.min_confidence": { label: "Minimum confidence", hint: "Views less confident than this are not used" },
+    "ai.max_age_days": { label: "View lifetime", hint: "A view whose last close is older than this many calendar days is not used; the plan is the rules' alone" },
   },
   values: {
     on: "On",
@@ -456,6 +475,11 @@ const en: typeof zh = {
     not_set: "Off",
     budgets_none: "Not set",
     budgets_count: "{n} sectors",
+  },
+  ai_modes: {
+    off: "Off",
+    shadow: "Shadow",
+    live: "Live",
   },
   view: {
     parameter: "Parameter",
@@ -480,6 +504,8 @@ const en: typeof zh = {
     bands: "Bands",
     bands_value: "{abs} / {rel}",
     min_trade: "Minimum trade",
+    ai: "AI view",
+    ai_value: "{mode} · max tilt {tilt}",
   },
   active: {
     title: "Active strategy",

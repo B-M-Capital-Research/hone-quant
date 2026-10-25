@@ -69,6 +69,8 @@ export function fmtParam(path: string, value: unknown): string {
       return value ? t.values.on : t.values.off;
     case "method":
       return methodText(String(value));
+    case "aimode":
+      return (t.ai_modes as Record<string, string>)[String(value ?? "off")] ?? String(value);
     case "budgets": {
       const entries = Object.entries((value as Record<string, number>) ?? {});
       return entries.length ? tpl(t.values.budgets_count, { n: entries.length }) : t.values.budgets_none;
@@ -181,6 +183,12 @@ export function keyParams(p: StrategyParams): KeyParam[] {
       paths: ["rebalance.band_abs", "rebalance.band_rel"],
     },
     { label: k.min_trade, value: fmtMoney(p.rebalance.min_trade_value, { dp: 0 }), paths: ["rebalance.min_trade_value"] },
+    {
+      label: k.ai,
+      value:
+        (p.ai?.mode ?? "off") === "off" ? t.ai_modes.off : tpl(k.ai_value, { mode: t.ai_modes[p.ai!.mode], tilt: pctText(p.ai!.max_tilt) }),
+      paths: ["ai.mode", "ai.max_tilt"],
+    },
   ];
 }
 

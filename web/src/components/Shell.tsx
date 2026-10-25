@@ -44,6 +44,7 @@ function navGroups(): { label: () => string; items: NavItem[] }[] {
       items: [
         { href: "/strategy", icon: "sliders", label: () => c().nav.strategy },
         { href: "/universe", icon: "universe", label: () => c().nav.universe },
+        { href: "/ai", icon: "sparkle", label: () => c().nav.ai },
       ],
     },
     {

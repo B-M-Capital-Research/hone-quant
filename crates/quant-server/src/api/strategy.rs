@@ -71,6 +71,7 @@ pub async fn preview(
         "turnover": proposal.plan.turnover,
         "est_costs": proposal.plan.est_commission + proposal.plan.est_fees + proposal.plan.est_slippage,
         "history": {"from": proposal.history_from, "to": proposal.history_to},
+        "ai": proposal.ai,
     })))
 }
 

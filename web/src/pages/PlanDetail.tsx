@@ -17,8 +17,10 @@ import { actorName, strategyName } from "@/lib/names";
 import { sectorLabel, throttle } from "./overview/util";
 import { ParamsView } from "./plans/ParamsView";
 import { OrderWhyCell, WhyCard } from "./plans/Why";
+import { PlanAiPanel } from "./ai/components";
+import "@/styles/ai.css";
 
-const TABS = ["orders", "fills", "targets", "sectors", "skipped", "params", "audit"] as const;
+const TABS = ["orders", "fills", "targets", "sectors", "ai", "skipped", "params", "audit"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function PlanDetail() {
@@ -304,7 +306,7 @@ export default function PlanDetail() {
 
             <div class="card" style={{ "min-width": 0 }}>
                 <div class="tabs plan-tabs" role="tablist">
-                  <For each={TABS}>
+                  <For each={TABS.filter((key) => key !== "ai" || d().diagnostics.ai)}>
                     {(key) => (
                       <button role="tab" aria-selected={tab() === key} onClick={() => setParams({ tab: key === "orders" ? undefined : key }, { replace: true })}>
                         {t().detail[`tab_${key}` as const]}
@@ -329,6 +331,9 @@ export default function PlanDetail() {
                 </Show>
                 <Show when={tab() === "sectors"}>
                   <SectorsTable detail={d()} />
+                </Show>
+                <Show when={tab() === "ai" && d().diagnostics.ai}>
+                  <PlanAiPanel ai={d().diagnostics.ai!} />
                 </Show>
                 <Show when={tab() === "skipped"}>
                   <SkippedTable detail={d()} name={name} />
@@ -729,6 +734,7 @@ function TargetsTable(props: { detail: Detail; name: (s: string) => string }) {
 function SectorsTable(props: { detail: Detail }) {
   const t = plansText;
   const sectors = () => props.detail.diagnostics.targets?.sectors ?? [];
+  const tilted = () => sectors().some((s) => s.ai_multiplier != null && Math.abs(s.ai_multiplier - 1) > 1e-9);
   return (
     <Show when={sectors().length} fallback={<Empty title={t().detail.no_diagnostics} />}>
       <p class="muted xs tab-note">{t().detail.sectors_note}</p>
@@ -742,6 +748,9 @@ function SectorsTable(props: { detail: Detail }) {
               <th class="r">{t().detail.col_momentum}</th>
               <th class="r">{t().detail.col_rank}</th>
               <th class="r">{t().detail.col_trend_factor}</th>
+              <Show when={tilted()}>
+                <th class="r">{t().detail.col_ai}</th>
+              </Show>
               <th class="r">{t().detail.col_cap}</th>
               <th class="r">{t().detail.col_budget}</th>
             </tr>
@@ -756,6 +765,9 @@ function SectorsTable(props: { detail: Detail }) {
                   <td class={`r num ${s.momentum == null ? "" : s.momentum >= 0 ? "up" : "down"}`}>{fmtPct(s.momentum, { dp: 1, sign: true })}</td>
                   <td class="r num">{s.momentum_rank == null ? "—" : fmtNum(s.momentum_rank * 100, 0)}</td>
                   <td class="r num">{fmtNum(s.trend_factor, 2)}</td>
+                  <Show when={tilted()}>
+                    <td class="r num">×{fmtNum(s.ai_multiplier ?? 1, 2)}</td>
+                  </Show>
                   <td class="r num muted">{fmtPct(s.cap, { dp: 1 })}</td>
                   <td class="r num">
                     <b>{fmtPct(s.budget, { dp: 1 })}</b>

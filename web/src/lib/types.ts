@@ -520,6 +520,17 @@ export interface StrategyParams {
     max_turnover: number;
     fractional_shares: boolean;
   };
+  /** Absent on versions saved before the AI sector view existed (= off). */
+  ai?: AiParams;
+}
+
+export type AiMode = "off" | "shadow" | "live";
+
+export interface AiParams {
+  mode: AiMode;
+  max_tilt: number;
+  min_confidence: number;
+  max_age_days: number;
 }
 
 export interface Preset {
@@ -586,6 +597,9 @@ export interface SectorDiagnostics {
   momentum: number | null;
   momentum_rank: number | null;
   trend_factor: number;
+  /** Recorded from the AI sector view on. */
+  ai_stance?: number | null;
+  ai_multiplier?: number;
   score: number;
   cap: number;
   budget: number;
@@ -642,6 +656,8 @@ export interface Preview {
   turnover: number;
   est_costs: number;
   history: { from: DateStr | null; to: DateStr | null };
+  /** What the AI sector view did, when the parameters consult it. */
+  ai?: PlanAi | null;
 }
 
 export interface PlanDiagnostics {
@@ -673,6 +689,117 @@ export interface PlanDiagnostics {
   };
   history?: { from: DateStr | null; to: DateStr | null };
   explain?: PlanExplanation;
+  /** What the AI sector view did; absent when the strategy does not consult it. */
+  ai?: PlanAi | null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// AI sector view
+// ---------------------------------------------------------------------------------------------
+
+export interface PlanAiSector {
+  sector: string;
+  stance: number;
+  confidence: number;
+  multiplier: number;
+  weight_with: number;
+  weight_without: number;
+}
+
+export interface PlanAi {
+  mode: AiMode;
+  /** `live`: traded with the view · `shadow`: recorded only · `unavailable`: no usable view. */
+  status: "live" | "shadow" | "unavailable";
+  view_id: number | null;
+  as_of: DateStr | null;
+  model: string | null;
+  formed_at: Iso | null;
+  max_tilt: number;
+  min_confidence: number;
+  max_age_days: number;
+  sectors: PlanAiSector[];
+  weights_with: Record<string, number>;
+  weights_without: Record<string, number>;
+  active_share: number;
+}
+
+export interface AiEvidence {
+  source: "ontology" | "earnings" | "market";
+  ref: string;
+  date: DateStr | null;
+  note_zh: string;
+  note_en: string;
+}
+
+export interface AiSectorOpinion {
+  sector: string;
+  stance: number;
+  confidence: number;
+  rationale_zh: string;
+  rationale_en: string;
+  risks_zh: string;
+  risks_en: string;
+  evidence: AiEvidence[];
+  proposed_stance: number | null;
+  flags: string[];
+}
+
+export interface AiViewOutput {
+  as_of: DateStr;
+  summary_zh: string;
+  summary_en: string;
+  sectors: AiSectorOpinion[];
+  notes: string[];
+}
+
+export interface AiView {
+  id: number;
+  as_of: DateStr;
+  status: "ok" | "failed";
+  prompt_version: string;
+  model: string;
+  output: AiViewOutput | null;
+  error: string | null;
+  usage: Record<string, unknown> | null;
+  latency_ms: number | null;
+  created_by: string;
+  created_at: Iso;
+  material?: unknown;
+  raw_response?: string | null;
+}
+
+export interface AiOverview {
+  configured: boolean;
+  model: string | null;
+  endpoint: string | null;
+  origin: string | null;
+  ontology: string;
+  running: boolean;
+  attempts_24h: number;
+  max_attempts_24h: number;
+  portfolios: { portfolio_id: number; portfolio: string; version_id: number; version: string; ai: AiParams }[];
+  latest: AiView | null;
+  views: AiView[];
+}
+
+export interface AiOverlayDay {
+  date: DateStr;
+  bps: number;
+  cumulative_bps: number;
+  plan_id: number;
+}
+
+export interface AiEvaluation {
+  plans: number;
+  days: number;
+  first_plan: DateStr | null;
+  cumulative_bps: number;
+  mean_bps: number | null;
+  hit_rate: number | null;
+  t_stat: number | null;
+  mean_active_share: number | null;
+  sectors: Record<string, number>;
+  series: AiOverlayDay[];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1215,5 +1342,7 @@ export type ServerEvent =
   /** A portfolio was created, renamed or archived. */
   | { type: "portfolios"; portfolio_id: number }
   | { type: "universe" }
+  /** An AI sector view was formed (or failed). */
+  | { type: "ai_view"; id: number; status: "ok" | "failed" }
   | { type: "resync" }
   | { type: "hello" };
