@@ -16,8 +16,9 @@
 //!
 //! The one outside input is an optional **sector view** per sector ([`SectorView`], produced by
 //! the server's AI analyst from the ontology and objective data): a bounded multiplier on the
-//! sector's score in step 2 ([`AiParams::multiplier`]). It never touches names inside a sector,
-//! total exposure or any cap, and the caller decides whether to pass it at all ([`AiMode`]).
+//! sector's score in step 2 ([`AiParams::multiplier`]). It changes no name's score, no cap and
+//! not the breadth exposure target (a volatility ceiling, applied afterwards, sees the tilted
+//! weights), and the caller decides whether to pass it at all ([`AiMode`]).
 
 use std::collections::BTreeMap;
 

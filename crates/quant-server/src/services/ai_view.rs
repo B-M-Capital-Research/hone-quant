@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 
 use crate::ai::material::{self, SectorMembers};
 use crate::ai::view::{self, PROMPT_VERSION, ViewOutput};
-use crate::market::EarningsReport;
+use crate::market::{EarningsReport, MarketError};
 use crate::state::{AppState, ServerEvent};
 use crate::store::ai::{self as store, NewView, StoredView};
 use crate::store::{market, portfolios, strategy as strategy_store};
@@ -83,6 +83,8 @@ pub async fn generate(state: &Arc<AppState>, actor: &str) -> Result<Generated> {
         .map_err(|_| anyhow!("an AI sector view is already being formed"))?;
     let now = state.now();
     let client = state.pool.get().await?;
+    // Nothing else can be running (the lock above): older `running` rows were interrupted.
+    store::fail_interrupted(&client, now).await?;
     let attempts = store::attempts_since(&client, now - Duration::hours(24)).await?;
     if attempts >= MAX_ATTEMPTS_PER_DAY {
         bail!("the model was already asked {attempts} times in the last 24 hours");
@@ -149,7 +151,31 @@ pub async fn generate(state: &Arc<AppState>, actor: &str) -> Result<Generated> {
     let system = view::system_prompt(AiParams::default().max_tilt);
     let user = view::user_prompt(as_of, &sector_ids, &briefing);
 
-    let answer = model.complete_json(&system, &user).await;
+    // The attempt is recorded before the call, so it counts toward the cap whatever happens next.
+    let client = state.pool.get().await?;
+    let id = store::insert_running(
+        &client,
+        &NewView {
+            as_of,
+            prompt_version: PROMPT_VERSION,
+            model: model.model(),
+            material: &briefing,
+            material_hash: &hash,
+            created_by: actor,
+        },
+    )
+    .await?;
+    drop(client);
+    state.emit(ServerEvent::AiView {
+        id,
+        status: "running".into(),
+    });
+
+    let answer = model.complete_json(&system, &user).await.map(|mut c| {
+        // PostgreSQL text and jsonb cannot hold NUL.
+        c.content = c.content.replace('\0', "");
+        c
+    });
     let (status, output, raw, error, usage, latency, reported_model) = match answer {
         Ok(completion) => match view::parse_view(&completion.content, &sector_ids, as_of) {
             Ok(parsed) => (
@@ -187,21 +213,17 @@ pub async fn generate(state: &Arc<AppState>, actor: &str) -> Result<Generated> {
         format!("{} ({reported_model})", model.model())
     };
     let client = state.pool.get().await?;
-    let id = store::insert(
+    store::finish(
         &client,
-        &NewView {
-            as_of,
+        id,
+        &store::Outcome {
             status,
-            prompt_version: PROMPT_VERSION,
             model: &model_name,
-            material: &briefing,
-            material_hash: &hash,
             output,
             raw_response: raw.as_deref(),
             error: error.as_deref(),
             usage: usage.as_ref(),
             latency_ms: latency.map(|ms| ms.min(i32::MAX as u64) as i32),
-            created_by: actor,
         },
     )
     .await?;
@@ -244,41 +266,74 @@ async fn universe_sectors(
         .collect())
 }
 
-/// Recent and scheduled reports per company, best effort; also how many companies failed.
+/// A company's reports, or why not (`true`: the data plan refuses earnings altogether).
+type Reports = Result<Vec<EarningsReport>, (bool, String)>;
+
+/// One company's reports, bounded in time.
+async fn earnings_of(
+    market: Arc<dyn crate::market::MarketData>,
+    symbol: String,
+) -> (String, Reports) {
+    let reports =
+        tokio::time::timeout(std::time::Duration::from_secs(60), market.earnings(&symbol)).await;
+    let result = match reports {
+        Ok(Ok(list)) => Ok(list),
+        Ok(Err(error)) => Err((
+            matches!(
+                error,
+                MarketError::PlanRestricted(_) | MarketError::NotConfigured(_)
+            ),
+            error.to_string(),
+        )),
+        Err(_) => Err((false, "timed out".to_string())),
+    };
+    (symbol, result)
+}
+
+/// Recent and scheduled reports per company, best effort; also how many companies failed. The
+/// first company is asked alone: when the data plan does not include earnings, that one refusal
+/// stands for all of them instead of one refused request per company. Any other failure (a
+/// timeout, a rate limit) costs only that company.
 async fn earnings(
     state: &AppState,
     symbols: &[String],
 ) -> (HashMap<String, Vec<EarningsReport>>, usize) {
+    let Some((first, rest)) = symbols.split_first() else {
+        return (HashMap::new(), 0);
+    };
+    let mut reports = HashMap::new();
+    let mut failed = 0;
+    match earnings_of(state.market.clone(), first.clone()).await {
+        (symbol, Ok(list)) => {
+            reports.insert(symbol, list);
+        }
+        (symbol, Err((true, error))) => {
+            tracing::info!(%symbol, %error, "earnings not in the data plan; skipping the rest");
+            return (reports, symbols.len());
+        }
+        (symbol, Err((false, error))) => {
+            tracing::debug!(%symbol, %error, "earnings unavailable");
+            failed += 1;
+        }
+    }
     // Owned symbols and market handle: a stream of futures borrowing from the closure's
     // argument would not be `Send` for every lifetime, and the scheduler spawns this.
-    let results: Vec<(String, Option<Vec<EarningsReport>>)> =
-        futures::stream::iter(symbols.to_vec())
-            .map(|symbol| {
-                let market = state.market.clone();
-                async move {
-                    let reports = tokio::time::timeout(
-                        std::time::Duration::from_secs(60),
-                        market.earnings(&symbol),
-                    )
-                    .await;
-                    match reports {
-                        Ok(Ok(list)) => (symbol, Some(list)),
-                        Ok(Err(error)) => {
-                            tracing::debug!(%symbol, %error, "earnings unavailable");
-                            (symbol, None)
-                        }
-                        Err(_) => (symbol, None),
-                    }
-                }
-            })
-            .buffer_unordered(4)
-            .collect()
-            .await;
-    let failed = results.iter().filter(|(_, r)| r.is_none()).count();
-    let reports = results
-        .into_iter()
-        .filter_map(|(symbol, list)| Some((symbol, list?)))
-        .collect();
+    let results: Vec<(String, Reports)> = futures::stream::iter(rest.to_vec())
+        .map(|symbol| earnings_of(state.market.clone(), symbol))
+        .buffer_unordered(4)
+        .collect()
+        .await;
+    for (symbol, result) in results {
+        match result {
+            Ok(list) => {
+                reports.insert(symbol, list);
+            }
+            Err((_, error)) => {
+                tracing::debug!(%symbol, %error, "earnings unavailable");
+                failed += 1;
+            }
+        }
+    }
     (reports, failed)
 }
 
@@ -463,10 +518,12 @@ fn weights_of(ai: &Value, key: &str) -> BTreeMap<String, f64> {
 }
 
 /// What trading with the view instead of without it would have earned, day by day, measured on
-/// adjusted closes. A plan's two target vectors are held from the close of its trade date until
-/// the next plan's; the difference is a long-short overlay with zero net cost of capital only
-/// when both invest the same amount, which they do (the view never changes exposure). Costs of
-/// the extra trades are not included.
+/// adjusted closes. Each plan's two target vectors are held from the close of its trade date
+/// until the next plan; a later plan without a view ends the holding, and days held under such a
+/// plan are not counted. The view's target is first rescaled to the invested weight of the
+/// target without it, so the overlay is a pure reallocation: with a volatility ceiling the view
+/// can also move total exposure, and that market exposure is not skill. Costs of the extra trades
+/// are not included.
 pub fn evaluate_from(
     plans: &[store::PlanAi],
     closes: &HashMap<String, Vec<(NaiveDate, f64)>>,
@@ -505,8 +562,17 @@ pub fn evaluate_from(
         let Some((_, plan)) = by_date.range(..date).next_back() else {
             continue;
         };
-        let with = weights_of(&plan.ai, "weights_with");
-        let without = weights_of(&plan.ai, "weights_without");
+        let Some(ai) = plan.ai.as_ref().filter(|_| plan.has_view()) else {
+            continue;
+        };
+        let mut with = weights_of(ai, "weights_with");
+        let without = weights_of(ai, "weights_without");
+        let invested_with: f64 = with.values().sum();
+        let invested_without: f64 = without.values().sum();
+        if invested_with > 0.0 {
+            let scale = invested_without / invested_with;
+            with.values_mut().for_each(|w| *w *= scale);
+        }
         let mut bps = 0.0;
         let mut seen = std::collections::BTreeSet::new();
         for symbol in with.keys().chain(without.keys()) {
@@ -545,14 +611,15 @@ pub fn evaluate_from(
     let decided: Vec<&OverlayDay> = series.iter().filter(|d| d.bps.abs() > 1e-9).collect();
     let hit_rate = (!decided.is_empty())
         .then(|| decided.iter().filter(|d| d.bps > 0.0).count() as f64 / decided.len() as f64);
-    let shares: Vec<f64> = plans
+    let with_view: Vec<&store::PlanAi> = plans.iter().filter(|p| p.has_view()).collect();
+    let shares: Vec<f64> = with_view
         .iter()
-        .filter_map(|p| p.ai.get("active_share").and_then(Value::as_f64))
+        .filter_map(|p| p.ai.as_ref()?.get("active_share")?.as_f64())
         .collect();
     Evaluation {
-        plans: plans.len(),
+        plans: with_view.len(),
         days: n,
-        first_plan: plans.first().map(|p| p.trade_date),
+        first_plan: with_view.first().map(|p| p.trade_date),
         cumulative_bps: cumulative,
         mean_bps: mean,
         hit_rate,
@@ -567,13 +634,14 @@ pub fn evaluate_from(
 /// [`evaluate_from`] for an account, through the last close.
 pub async fn evaluate(state: &AppState, account_id: i64) -> Result<Evaluation> {
     let client = state.pool.get().await?;
-    let plans = store::plans_with_view(&client, account_id).await?;
+    let plans = store::plans_since_first_view(&client, account_id).await?;
     let mut symbols: Vec<String> = plans
         .iter()
-        .flat_map(|p| {
-            weights_of(&p.ai, "weights_with")
+        .filter_map(|p| p.ai.as_ref())
+        .flat_map(|ai| {
+            weights_of(ai, "weights_with")
                 .into_keys()
-                .chain(weights_of(&p.ai, "weights_without").into_keys())
+                .chain(weights_of(ai, "weights_without").into_keys())
         })
         .collect();
     symbols.sort();
@@ -614,7 +682,19 @@ mod tests {
             trade_date: d(day),
             slot: "open".into(),
             generated_at: Utc::now(),
-            ai: json!({"weights_with": with, "weights_without": without, "active_share": 0.1}),
+            ai: Some(
+                json!({"view_id": 1, "weights_with": with, "weights_without": without, "active_share": 0.1}),
+            ),
+        }
+    }
+
+    fn plan_without_view(id: i64, day: u32) -> store::PlanAi {
+        store::PlanAi {
+            plan_id: id,
+            trade_date: d(day),
+            slot: "open".into(),
+            generated_at: Utc::now(),
+            ai: None,
         }
     }
 
@@ -658,5 +738,39 @@ mod tests {
         // Nothing before the first plan counts.
         let evaluation = evaluate_from(&plans, &closes, &sectors, d(5));
         assert_eq!(evaluation.days, 0);
+
+        // A later plan without a view ends the holding: its days are not counted at all.
+        let plans = vec![
+            plan(
+                1,
+                5,
+                json!({"A": 0.3, "B": 0.1}),
+                json!({"A": 0.2, "B": 0.2}),
+            ),
+            plan_without_view(2, 6),
+        ];
+        let evaluation = evaluate_from(&plans, &closes, &sectors, d(7));
+        assert_eq!(evaluation.days, 1);
+        assert_eq!(evaluation.plans, 1);
+        assert!((evaluation.cumulative_bps - 30.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_view_that_moves_exposure_is_measured_at_equal_exposure() {
+        // With a volatility ceiling the view's target invests 50% instead of 40%; rescaled, it is
+        // the same 50/50 split as without it, so the extra exposure earns nothing.
+        let plans = vec![plan(
+            1,
+            5,
+            json!({"A": 0.25, "B": 0.25}),
+            json!({"A": 0.2, "B": 0.2}),
+        )];
+        let closes = HashMap::from([
+            ("A".to_string(), vec![(d(5), 100.0), (d(6), 110.0)]),
+            ("B".to_string(), vec![(d(5), 100.0), (d(6), 105.0)]),
+        ]);
+        let evaluation = evaluate_from(&plans, &closes, &HashMap::new(), d(6));
+        assert_eq!(evaluation.days, 1);
+        assert!(evaluation.cumulative_bps.abs() < 1e-9);
     }
 }

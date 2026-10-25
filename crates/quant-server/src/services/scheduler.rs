@@ -243,7 +243,12 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
             && !ai_view::running()
         {
             ls.last_ai_check = Some(Instant::now());
-            if ai_view::needed(state).await? {
+            // Never let this optional step hold up the rest of the tick.
+            let needed = ai_view::needed(state).await.unwrap_or_else(|error| {
+                tracing::warn!(error = %format!("{error:#}"), "AI sector view check failed");
+                false
+            });
+            if needed {
                 tokio::spawn(ai_view_job(state.clone(), key.clone()));
             }
         }
@@ -429,14 +434,20 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
 }
 
 /// Job key of a portfolio's daily job.
-/// Forms the day's AI sector view once; a failed attempt is retried by later ticks, up to the
-/// daily attempt cap.
+/// Forms the day's AI sector view once; a failed attempt is retried by later ticks. While the
+/// rolling 24-hour attempt cap is reached the job is not even claimed, so it runs as soon as the
+/// cap frees up (before the pre-close plan) instead of being written off for the day.
 async fn ai_view_job(state: Arc<AppState>, key: String) {
+    match ai_view::capped(&state).await {
+        Ok(false) => {}
+        Ok(true) => return,
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "AI sector view cap check failed");
+            return;
+        }
+    }
     let work_state = state.clone();
     let _ = once(&state, "ai_view", &key, move || async move {
-        if ai_view::capped(&work_state).await? {
-            return Ok(json!({"skipped": "daily attempt cap reached"}));
-        }
         let generated = ai_view::generate(&work_state, "system").await?;
         match &generated.error {
             None => Ok(json!(generated)),

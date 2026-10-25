@@ -9,7 +9,8 @@ CREATE TABLE ai_views (
     id              BIGSERIAL PRIMARY KEY,
     -- Last close the material includes.
     as_of           DATE NOT NULL,
-    status          TEXT NOT NULL CHECK (status IN ('ok', 'failed')),
+    -- `running` is written before the model is called, so every call counts toward the cap.
+    status          TEXT NOT NULL CHECK (status IN ('running', 'ok', 'failed')),
     prompt_version  TEXT NOT NULL,
     -- Model requested, and the one the endpoint reported.
     model           TEXT NOT NULL DEFAULT '',

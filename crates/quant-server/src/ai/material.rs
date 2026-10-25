@@ -119,7 +119,8 @@ pub fn ontology_digest(ontology: &Value, sectors: &[SectorMembers], as_of: Naive
                 .map(|v| json!({"date": text(v, "date"), "house": cut(v, "house", 40), "takeaway": cut(v, "takeaway", 220)}))
                 .collect();
             let brief_date = date_of(&brief, "as_of");
-            let brief = if not_after(brief_date, as_of) {
+            let brief_kept = not_after(brief_date, as_of);
+            let brief = if brief_kept {
                 json!({
                     "as_of": text(&brief, "as_of"),
                     "question": cut(&brief, "question", 160),
@@ -129,7 +130,8 @@ pub fn ontology_digest(ontology: &Value, sectors: &[SectorMembers], as_of: Naive
             } else {
                 Value::Null
             };
-            let newest = [brief_date]
+            // Only material the analyst actually gets counts toward freshness.
+            let newest = [brief_date.filter(|_| brief_kept)]
                 .into_iter()
                 .chain(sources.iter().map(|v| date_of(v, "date")))
                 .flatten()
@@ -414,6 +416,11 @@ mod tests {
         // Long after the material, it is flagged stale.
         let later = ontology_digest(&ontology, &sectors(), d("2027-06-01"));
         assert_eq!(later["sectors"][0]["research"]["stale"], true);
+        // Before the brief was written, neither it nor its date reaches the analyst.
+        let earlier = ontology_digest(&ontology, &sectors(), d("2026-08-30"));
+        let research = &earlier["sectors"][0]["research"];
+        assert!(research["brief"].is_null());
+        assert_eq!(research["newest_material"], "2026-08-26");
     }
 
     #[test]

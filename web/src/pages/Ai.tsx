@@ -7,7 +7,7 @@ import "@/styles/research.css";
 import "@/styles/plans.css";
 import "@/styles/ai.css";
 import { useSearchParams } from "@solidjs/router";
-import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { Icon } from "@/components/Icon";
 import { ErrorState, Kpi, Loading, toast, toastError } from "@/components/ui";
 import { locale, tpl } from "@/i18n";
@@ -44,6 +44,15 @@ export default function Ai() {
       offView();
       offPlan();
     });
+  });
+
+  // While a view is being formed, poll: a run that fails before recording an attempt sends no
+  // event, and the button must not stay on "generating".
+  createEffect(() => {
+    const o = overview.data();
+    if (!o || !(o.running || o.views.some((v) => v.status === "running"))) return;
+    const timer = setTimeout(() => void overview.load(), 5000);
+    onCleanup(() => clearTimeout(timer));
   });
 
   const sector = (id: string) => sectorLabel(universe()?.sectors, id);
@@ -313,7 +322,15 @@ function HistoryCard(props: { views: AiView[]; open: number | null; onOpen: (id:
                       <div class="xs muted">{tpl(a().history.by, { actor: actorName(v.created_by) })}</div>
                     </td>
                     <td class="num nowrap">{v.as_of}</td>
-                    <td>{v.status === "ok" ? <span class="chip green">{a().history.ok}</span> : <span class="chip red">{a().history.failed}</span>}</td>
+                    <td>
+                      {v.status === "ok" ? (
+                        <span class="chip green">{a().history.ok}</span>
+                      ) : v.status === "running" ? (
+                        <span class="chip blue">{a().history.running}</span>
+                      ) : (
+                        <span class="chip red">{a().history.failed}</span>
+                      )}
+                    </td>
                     <td class="xs">{v.model}</td>
                     <td class="r num nowrap">{v.latency_ms == null ? "—" : `${fmtNum(v.latency_ms / 1000, 1)} s`}</td>
                     <td class="ai-why xs">{v.error ?? (locale() === "zh" ? v.output?.summary_zh : v.output?.summary_en) ?? ""}</td>

@@ -60,42 +60,73 @@ fn row(r: &Row, detail: bool) -> StoredView {
 
 pub struct NewView<'a> {
     pub as_of: NaiveDate,
-    pub status: &'a str,
     pub prompt_version: &'a str,
     pub model: &'a str,
     pub material: &'a Value,
     pub material_hash: &'a str,
-    pub output: Option<Value>,
-    pub raw_response: Option<&'a str>,
-    pub error: Option<&'a str>,
-    pub usage: Option<&'a Value>,
-    pub latency_ms: Option<i32>,
     pub created_by: &'a str,
 }
 
-pub async fn insert(client: &impl GenericClient, view: &NewView<'_>) -> Result<i64> {
+/// Records an attempt as `running`, before the model is called.
+pub async fn insert_running(client: &impl GenericClient, view: &NewView<'_>) -> Result<i64> {
     let r = client
         .query_one(
-            "INSERT INTO ai_views (as_of, status, prompt_version, model, material, material_hash, output,
-                                   raw_response, error, usage, latency_ms, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id",
+            "INSERT INTO ai_views (as_of, status, prompt_version, model, material, material_hash, created_by)
+             VALUES ($1, 'running', $2, $3, $4, $5, $6) RETURNING id",
             &[
                 &view.as_of,
-                &view.status,
                 &view.prompt_version,
                 &view.model,
                 &view.material,
                 &view.material_hash,
-                &view.output,
-                &view.raw_response,
-                &view.error,
-                &view.usage,
-                &view.latency_ms,
                 &view.created_by,
             ],
         )
         .await?;
     Ok(r.get(0))
+}
+
+pub struct Outcome<'a> {
+    /// `ok` or `failed`.
+    pub status: &'a str,
+    pub model: &'a str,
+    pub output: Option<Value>,
+    pub raw_response: Option<&'a str>,
+    pub error: Option<&'a str>,
+    pub usage: Option<&'a Value>,
+    pub latency_ms: Option<i32>,
+}
+
+pub async fn finish(client: &impl GenericClient, id: i64, outcome: &Outcome<'_>) -> Result<()> {
+    client
+        .execute(
+            "UPDATE ai_views SET status = $2, model = $3, output = $4, raw_response = $5, error = $6,
+                                 usage = $7, latency_ms = $8
+             WHERE id = $1",
+            &[
+                &id,
+                &outcome.status,
+                &outcome.model,
+                &outcome.output,
+                &outcome.raw_response,
+                &outcome.error,
+                &outcome.usage,
+                &outcome.latency_ms,
+            ],
+        )
+        .await?;
+    Ok(())
+}
+
+/// Attempts left `running` by a process that stopped mid-call.
+pub async fn fail_interrupted(client: &impl GenericClient, before: DateTime<Utc>) -> Result<u64> {
+    Ok(client
+        .execute(
+            "UPDATE ai_views SET status = 'failed', error = 'interrupted'
+             WHERE status = 'running' AND created_at < $1",
+            &[&before],
+        )
+        .await?)
 }
 
 pub async fn list(client: &impl GenericClient, limit: i64) -> Result<Vec<StoredView>> {
@@ -153,15 +184,32 @@ pub struct PlanAi {
     pub trade_date: NaiveDate,
     pub slot: String,
     pub generated_at: DateTime<Utc>,
-    pub ai: Value,
+    /// `None` (or without a `view_id`) when the plan used no view.
+    pub ai: Option<Value>,
 }
 
-/// Every plan of an account that recorded an AI sector view (applied or in shadow).
-pub async fn plans_with_view(client: &impl GenericClient, account_id: i64) -> Result<Vec<PlanAi>> {
+impl PlanAi {
+    /// Whether the plan recorded a view (applied or in shadow).
+    pub fn has_view(&self) -> bool {
+        self.ai
+            .as_ref()
+            .is_some_and(|ai| ai.get("view_id").is_some_and(|v| !v.is_null()))
+    }
+}
+
+/// Every plan of an account from the first one that recorded an AI sector view on: later plans
+/// without a view end the period the previous view's targets were held.
+pub async fn plans_since_first_view(
+    client: &impl GenericClient,
+    account_id: i64,
+) -> Result<Vec<PlanAi>> {
     let rows = client
         .query(
             "SELECT id, trade_date, slot, generated_at, diagnostics->'ai' FROM plans
-             WHERE account_id = $1 AND status <> 'skipped' AND diagnostics->'ai'->>'view_id' IS NOT NULL
+             WHERE account_id = $1 AND status <> 'skipped'
+               AND generated_at >= (SELECT min(generated_at) FROM plans
+                                    WHERE account_id = $1 AND status <> 'skipped'
+                                      AND diagnostics->'ai'->>'view_id' IS NOT NULL)
              ORDER BY generated_at, id",
             &[&account_id],
         )

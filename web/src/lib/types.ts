@@ -755,7 +755,7 @@ export interface AiViewOutput {
 export interface AiView {
   id: number;
   as_of: DateStr;
-  status: "ok" | "failed";
+  status: "running" | "ok" | "failed";
   prompt_version: string;
   model: string;
   output: AiViewOutput | null;
@@ -1343,6 +1343,6 @@ export type ServerEvent =
   | { type: "portfolios"; portfolio_id: number }
   | { type: "universe" }
   /** An AI sector view was formed (or failed). */
-  | { type: "ai_view"; id: number; status: "ok" | "failed" }
+  | { type: "ai_view"; id: number; status: "running" | "ok" | "failed" }
   | { type: "resync" }
   | { type: "hello" };

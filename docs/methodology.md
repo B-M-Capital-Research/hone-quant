@@ -88,8 +88,9 @@ momentum, rank, multipliers and final weight — and shows them on the plan's pa
 ### The AI sector view (optional)
 
 The `ai` group of the strategy parameters decides whether plans consult the **AI sector view**. It
-is the only outside input to step 2 and acts on sector scores only: never on the names inside a
-sector, total exposure or any cap.
+is the only outside input to step 2 and acts on sector scores only: it changes no name's score,
+no cap and not the exposure target set by breadth (with a volatility ceiling, the ceiling applies
+to the tilted weights, so total exposure can differ slightly).
 
 **How a view is formed.** 75 minutes before each session's open (only when some portfolio's active
 strategy consults it and a model is configured), the server hands a dated briefing to the model —
@@ -133,8 +134,10 @@ plans trade the targets with the view and store the ones without it.
 **Why shadow first.** AI views cannot be tested on history: the model knows what happened, and the
 ontology is not archived point-in-time, so any "backtest" would be optimistic. Backtests therefore
 never apply the view. The only credible test is forward: the AI page holds each plan's targets
-*with − without* until the next plan and values them on every following adjusted close (extra
-trading costs excluded), reporting the cumulative and mean contribution, the share of positive
+*with − without* until the next plan (a later plan without a view ends the holding, and its days
+are not counted), rescales the targets with the view to the invested weight of the targets
+without it so that only the reallocation is measured, and values the difference on every
+following adjusted close (extra trading costs excluded), reporting the cumulative and mean contribution, the share of positive
 days, a t-statistic and the contribution by sector. Below about 60 trading days it is mostly noise.
 
 ## 3. From targets to orders

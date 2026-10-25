@@ -16,7 +16,7 @@ use crate::store::{portfolios, strategy as strategy_store, system};
 
 pub async fn overview(
     State(state): State<SharedState>,
-    _user: CurrentUser,
+    user: CurrentUser,
 ) -> ApiResult<Json<Value>> {
     let client = state.pool.get().await?;
     let views = store::list(&client, 30).await?;
@@ -34,9 +34,12 @@ pub async fn overview(
         }),
         None => None,
     };
-    // Which active portfolios consult the view, and how.
+    // Which active portfolios the user can see consult the view, and how.
     let mut users = Vec::new();
     for book in portfolios::active_books(&client).await? {
+        if !user.can_view(&book.portfolio) {
+            continue;
+        }
         if let Some(version) = strategy_store::active_version(&client, book.account.id).await? {
             let ai = version.strategy_params()?.ai;
             if ai.mode != AiMode::Off {

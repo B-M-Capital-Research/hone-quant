@@ -322,3 +322,52 @@ async fn members_see_and_run_only_their_own_portfolios() {
     );
     db.drop().await;
 }
+
+#[tokio::test]
+async fn the_ai_page_names_only_portfolios_the_user_can_see() {
+    let now = Utc.with_ymd_and_hms(2026, 10, 5, 15, 0, 0).unwrap();
+    let Some((_db, state)) = testkit::state_at(now).await else {
+        eprintln!("skipped: HONE_QUANT_TEST_DATABASE_URL not set");
+        return;
+    };
+    bootstrap::run(&state).await.unwrap();
+    let client = state.pool.get().await.unwrap();
+    let main = portfolios::active_books(&client).await.unwrap()[0].clone();
+    let mut params = quant_core::strategy::StrategyParams::default();
+    params.ai.mode = quant_core::strategy::AiMode::Shadow;
+    let version = crate::store::strategy::insert_version(
+        &client,
+        "shadow",
+        "sector_risk_budget",
+        &params,
+        "",
+        "test",
+    )
+    .await
+    .unwrap();
+    crate::store::strategy::activate(&client, main.account.id, version.id, "test", "")
+        .await
+        .unwrap();
+    drop(client);
+    let app = super::router(state.clone());
+    let as_user = |cookie: String| Client {
+        app: app.clone(),
+        cookie,
+    };
+    let admin = as_user(sign_in(&state, "root", "admin").await);
+    let alice = as_user(sign_in(&state, "alice", "member").await);
+
+    let (status, body) = admin.get("/api/ai", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["portfolios"][0]["portfolio_id"], main.portfolio.id);
+    assert_eq!(body["configured"], false);
+    // A member does not learn about a portfolio they cannot see, and cannot run the model.
+    let (status, body) = alice.get("/api/ai", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["portfolios"], json!([]));
+    let (status, _) = alice.post("/api/ai/views/generate", None, json!({})).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // Without a model, an administrator gets a clear refusal rather than a silent no-op.
+    let (status, _) = admin.post("/api/ai/views/generate", None, json!({})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
