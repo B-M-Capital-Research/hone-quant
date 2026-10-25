@@ -1,0 +1,11 @@
+# /etc/systemd/system/hone-quant-ontology.timer
+# Every 15 minutes: edits made on honeclaw's industry-map page reach the next AI sector view.
+[Unit]
+Description=Copy honeclaw's industry ontology for hone-quant every 15 minutes
+
+[Timer]
+OnCalendar=*:2/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

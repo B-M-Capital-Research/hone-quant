@@ -66,6 +66,124 @@ pub async fn capped(state: &AppState) -> Result<bool> {
     Ok(store::attempts_since(&client, since).await? >= MAX_ATTEMPTS_PER_DAY)
 }
 
+/// What [`set_mode`] did.
+#[derive(Debug, Clone, Serialize)]
+pub struct ModeChange {
+    pub portfolio_id: i64,
+    pub from: AiMode,
+    pub to: AiMode,
+    /// The version now active: a new one, or the previous one when the mode was already set.
+    pub version_id: i64,
+    pub version_name: String,
+    pub changed: bool,
+}
+
+/// Sets how a portfolio's strategy uses the AI sector view: saves a copy of its active version
+/// with only `ai.mode` changed, activates it and records both steps in the audit log, as the
+/// strategy page does. Nothing changes when the mode is already set.
+pub async fn set_mode(
+    state: &Arc<AppState>,
+    portfolio_id: i64,
+    mode: AiMode,
+    actor: &str,
+) -> Result<ModeChange> {
+    let mut client = state.pool.get().await?;
+    let book = portfolios::book(&client, portfolio_id).await?;
+    let active = strategy_store::active_version(&client, book.account.id)
+        .await?
+        .ok_or_else(|| anyhow!("portfolio {portfolio_id} has no active strategy"))?;
+    let mut params = active.strategy_params()?;
+    let from = params.ai.mode;
+    if from == mode {
+        return Ok(ModeChange {
+            portfolio_id,
+            from,
+            to: mode,
+            version_id: active.id,
+            version_name: active.name,
+            changed: false,
+        });
+    }
+    params.ai.mode = mode;
+    // "<base> · AI <mode>", replacing an earlier AI suffix; names are at most 80 characters.
+    let base = active
+        .name
+        .split(" · AI ")
+        .next()
+        .unwrap_or(&active.name)
+        .to_string();
+    let label = match mode {
+        AiMode::Off => "关闭",
+        AiMode::Shadow => "影子",
+        AiMode::Live => "实盘",
+    };
+    let suffix = format!(" · AI {label}");
+    let base: String = base.chars().take(80 - suffix.chars().count()).collect();
+    let name = format!("{base}{suffix}");
+    let mode_text = |m: AiMode| {
+        serde_json::to_value(m)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default()
+    };
+    let note = format!(
+        "ai.mode {} → {} (from version {})",
+        mode_text(from),
+        mode_text(mode),
+        active.id
+    );
+    let tx = client.transaction().await?;
+    let version =
+        strategy_store::insert_version(&tx, &name, &active.preset_id, &params, &note, actor)
+            .await?;
+    crate::store::system::audit(
+        &tx,
+        actor,
+        "strategy.version_created",
+        "strategy_version",
+        &version.id.to_string(),
+        json!({"name": name, "preset_id": active.preset_id, "params": params, "note": note}),
+        "",
+    )
+    .await?;
+    strategy_store::activate(&tx, book.account.id, version.id, actor, &note).await?;
+    crate::store::system::audit(
+        &tx,
+        actor,
+        "strategy.activated",
+        "strategy_version",
+        &version.id.to_string(),
+        json!({"portfolio_id": portfolio_id}),
+        "",
+    )
+    .await?;
+    tx.commit().await?;
+    drop(client);
+    state.emit(ServerEvent::Strategy {
+        version_id: version.id,
+        portfolio_id: Some(portfolio_id),
+    });
+    let _ = crate::notify::notify_in(
+        state,
+        &book.portfolio.tag(),
+        crate::notify::Event::StrategyActivated {
+            version_id: version.id,
+            name: version.name.clone(),
+            preset_id: version.preset_id.clone(),
+            actor: actor.to_string(),
+        },
+    )
+    .await;
+    Ok(ModeChange {
+        portfolio_id,
+        from,
+        to: mode,
+        version_id: version.id,
+        version_name: version.name,
+        changed: true,
+    })
+}
+
 /// Whether a view is being formed right now.
 pub fn running() -> bool {
     RUNNING.try_lock().is_err()

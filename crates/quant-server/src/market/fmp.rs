@@ -538,8 +538,8 @@ impl EndpointCheck {
 }
 
 /// Probes quote, batch quote, daily, dividend-adjusted daily (stable only), 5-minute intraday
-/// (last five days), splits and dividends for `symbol` on both API generations — the report
-/// behind `hone-quant fmp check`.
+/// (last five days), splits, dividends and earnings for `symbol` on both API generations — the
+/// report behind `hone-quant fmp check`.
 ///
 /// Probes run one after another, bypass `Auto` routing and leave its memory untouched, so the
 /// report shows what each generation can serve with the configured keys.
@@ -635,6 +635,13 @@ pub async fn diagnose(client: &FmpClient, symbol: &str) -> Vec<EndpointCheck> {
                 )
             },
         ));
+    }
+    for api in BOTH {
+        let outcome = client.fetch_earnings(api, &symbol).await;
+        checks.push(EndpointCheck::probe("earnings", api, outcome, |reports| {
+            let reported = reports.iter().filter(|r| r.eps_actual.is_some());
+            latest(reports.len(), reported.map(|r| r.date).max())
+        }));
     }
     checks
 }

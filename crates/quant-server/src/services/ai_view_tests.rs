@@ -269,3 +269,53 @@ async fn views_are_formed_validated_recorded_in_shadow_and_traded_live() {
     assert!(ai_view::generate(&state, "test").await.is_err());
     std::fs::remove_file(ontology).ok();
 }
+
+#[tokio::test]
+async fn a_portfolio_is_switched_by_activating_a_copy_with_only_the_mode_changed() {
+    let now = Utc.with_ymd_and_hms(2026, 10, 5, 15, 0, 0).unwrap();
+    let Some((_db, state)) = testkit::state_at(now).await else {
+        eprintln!("skipped: HONE_QUANT_TEST_DATABASE_URL not set");
+        return;
+    };
+    bootstrap::run(&state).await.unwrap();
+    let client = state.pool.get().await.unwrap();
+    let main = portfolios::active_books(&client).await.unwrap()[0].clone();
+    let before = strategy_store::active_version(&client, main.account.id)
+        .await
+        .unwrap()
+        .unwrap();
+    drop(client);
+
+    let change = ai_view::set_mode(&state, main.portfolio.id, AiMode::Shadow, "cli")
+        .await
+        .unwrap();
+    assert!(change.changed);
+    assert_eq!(change.from, AiMode::Off);
+    assert_eq!(change.version_name, format!("{} · AI 影子", before.name));
+    let client = state.pool.get().await.unwrap();
+    let active = strategy_store::active_version(&client, main.account.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(active.id, change.version_id);
+    let mut expected = before.strategy_params().unwrap();
+    expected.ai.mode = AiMode::Shadow;
+    assert_eq!(active.strategy_params().unwrap(), expected);
+    drop(client);
+
+    // Already set: nothing new. Switching again replaces the suffix rather than stacking it.
+    let again = ai_view::set_mode(&state, main.portfolio.id, AiMode::Shadow, "cli")
+        .await
+        .unwrap();
+    assert!(!again.changed);
+    assert_eq!(again.version_id, change.version_id);
+    let live = ai_view::set_mode(&state, main.portfolio.id, AiMode::Live, "cli")
+        .await
+        .unwrap();
+    assert_eq!(live.version_name, format!("{} · AI 实盘", before.name));
+    assert!(
+        ai_view::set_mode(&state, 9999, AiMode::Live, "cli")
+            .await
+            .is_err()
+    );
+}

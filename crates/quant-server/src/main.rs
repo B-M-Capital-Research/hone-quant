@@ -15,7 +15,7 @@ use quant_server::config::{Config, LogFormat};
 use quant_server::market::demo::{DemoInstrument, DemoMarket};
 use quant_server::market::fmp::FmpClient;
 use quant_server::market::{DataSource, MarketData};
-use quant_server::services::{bootstrap, marketdata, scheduler};
+use quant_server::services::{ai_view, bootstrap, marketdata, scheduler};
 use quant_server::state::{AppState, offset_clock, system_clock};
 use quant_server::store::system;
 use quant_server::{ai, api, auth, config, crypto, db, honeclaw_auth, universe};
@@ -58,6 +58,27 @@ enum Command {
         /// Re-download the full history window instead of topping it up.
         #[arg(long)]
         full: bool,
+    },
+    /// The AI sector view.
+    Ai {
+        #[command(subcommand)]
+        command: AiCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum AiCommand {
+    /// Form a view now from the latest closes and print it. Calls the model once; counts toward
+    /// the 24-hour cap shared with the scheduler.
+    View,
+    /// Set how a portfolio's strategy uses the view: activates a copy of its current version
+    /// with only the AI mode changed.
+    Mode {
+        /// Portfolio id.
+        #[arg(long)]
+        portfolio: i64,
+        #[arg(value_parser = ["off", "shadow", "live"])]
+        mode: String,
     },
 }
 
@@ -448,6 +469,65 @@ async fn main() -> Result<()> {
                 bail!("no endpoint worked with the configured keys");
             }
             Ok(())
+        }
+        Command::Ai { command } => {
+            let state = build_state(config).await?;
+            match command {
+                AiCommand::View => {
+                    let generated = ai_view::generate(&state, "cli").await?;
+                    let client = state.pool.get().await?;
+                    let stored = quant_server::store::ai::get(&client, generated.id)
+                        .await?
+                        .context("the view just stored is missing")?;
+                    println!(
+                        "view {} · {} · as of {} · {} · {} ms",
+                        stored.id,
+                        stored.status,
+                        stored.as_of,
+                        stored.model,
+                        stored.latency_ms.unwrap_or_default()
+                    );
+                    if let Some(usage) = &stored.usage {
+                        println!("usage {usage}");
+                    }
+                    if let Some(material) = &stored.material {
+                        println!(
+                            "briefing {} chars, ontology edits applied: {}, notes: {}",
+                            material.to_string().chars().count(),
+                            material["ontology"]["edits_applied"],
+                            material["notes"]
+                        );
+                    }
+                    match stored.view() {
+                        Some(view) => {
+                            println!("{}", view.summary_zh);
+                            for s in &view.sectors {
+                                println!(
+                                    "  {:<12} {:+} {:>4.0}%  {}{}",
+                                    s.sector,
+                                    s.stance,
+                                    s.confidence * 100.0,
+                                    s.rationale_zh,
+                                    if s.flags.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!("  [{}]", s.flags.join(", "))
+                                    }
+                                );
+                            }
+                            Ok(())
+                        }
+                        None => bail!("the view failed: {}", stored.error.unwrap_or_default()),
+                    }
+                }
+                AiCommand::Mode { portfolio, mode } => {
+                    let mode: quant_core::strategy::AiMode =
+                        serde_json::from_value(serde_json::json!(mode))?;
+                    let change = ai_view::set_mode(&state, portfolio, mode, "cli").await?;
+                    println!("{}", serde_json::to_string_pretty(&change)?);
+                    Ok(())
+                }
+            }
         }
         Command::Sync { full } => {
             let state = build_state(config).await?;
