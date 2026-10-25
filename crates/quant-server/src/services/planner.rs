@@ -19,12 +19,13 @@ use anyhow::{Result, anyhow};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use quant_core::explain::{OrderRecord, PlanExplanation, PlanHeader, PlanSnapshot};
 use quant_core::rebalance::{RebalanceInput, RebalancePlan, rebalance};
-use quant_core::strategy::{AssetMeta, EngineInput, StrategyParams, TargetResult, compute_targets};
+use quant_core::strategy::{AiMode, AssetMeta, EngineInput, StrategyParams, TargetResult};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::notify::{self, Event};
+use crate::services::ai_view::{self, AiApplied};
 use crate::services::{explain, marketdata};
 use crate::state::{AppState, ServerEvent};
 use crate::store::portfolios;
@@ -69,6 +70,8 @@ pub struct Proposal {
     pub quotes: BTreeMap<String, QuoteInfo>,
     pub history_from: Option<NaiveDate>,
     pub history_to: Option<NaiveDate>,
+    /// What the AI sector view did (`None` when the strategy does not consult it).
+    pub ai: Option<AiApplied>,
 }
 
 impl Proposal {
@@ -133,6 +136,7 @@ impl Proposal {
                 "band_waived": self.plan.orders.iter().filter(|o| o.band_waived).map(|o| &self.symbols[o.asset]).collect::<Vec<_>>(),
             },
             "history": {"from": self.history_from, "to": self.history_to},
+            "ai": self.ai,
         })
     }
 }
@@ -396,8 +400,15 @@ pub async fn build_proposal(
         })
         .collect();
 
+    // The AI sector view, when the strategy consults it.
+    let view = if params.ai.mode == AiMode::Off {
+        None
+    } else {
+        ai_view::usable(&client, &params.ai, trade_date).await?
+    };
+    drop(client);
     let history_refs: Vec<&[f64]> = history.iter().map(|h| h.as_slice()).collect();
-    let targets = compute_targets(
+    let (targets, ai) = ai_view::apply(
         params,
         &EngineInput {
             assets: &assets,
@@ -406,7 +417,10 @@ pub async fn build_proposal(
             current_weights: &current_weights,
             excluded: &excluded_flags,
             frozen: &frozen_flags,
+            sector_views: &BTreeMap::new(),
         },
+        &symbols,
+        view.as_ref(),
     );
     let tradable: Vec<bool> = (0..n)
         .map(|i| !frozen_flags[i] && prices[i].is_finite())
@@ -436,6 +450,7 @@ pub async fn build_proposal(
         quotes,
         history_from: dates.first().copied(),
         history_to: dates.last().copied(),
+        ai,
     })
 }
 

@@ -8,6 +8,8 @@
 //!
 //! Daily timeline on a regular session (New York time; Singapore is +12h in summer):
 //! - open −90 min: refresh daily history, corporate actions; apply splits/dividends;
+//! - open −75 min: the AI sector view, when a strategy consults it and a model is configured
+//!   (in the background; retried until three hours before the close);
 //! - open −30 min: pre-open briefing (configurable);
 //! - open +30 min: opening plan → review window → automatic execution (configurable);
 //! - close −180 min: pre-close plan → review window → automatic execution;
@@ -32,7 +34,7 @@ use tokio::sync::Mutex;
 use crate::db::lock_key;
 use crate::notify::{self, Event};
 use crate::services::reminders::{self, Schedule};
-use crate::services::{broker, explain, marketdata, planner, portfolio};
+use crate::services::{ai_view, broker, explain, marketdata, planner, portfolio};
 use crate::state::AppState;
 use crate::store::portfolios::{self, Book};
 use crate::store::settings::{self, AutomationMode, ExecutionSettings, RiskSettings};
@@ -45,6 +47,7 @@ struct LoopState {
     last_quote_poll: Option<Instant>,
     last_housekeeping: Option<Instant>,
     last_risk_check: Option<Instant>,
+    last_ai_check: Option<Instant>,
     initial_sync_done: bool,
 }
 
@@ -54,6 +57,7 @@ pub fn spawn(state: Arc<AppState>) -> tokio::task::JoinHandle<()> {
             last_quote_poll: None,
             last_housekeeping: None,
             last_risk_check: None,
+            last_ai_check: None,
             initial_sync_done: false,
         });
         let mut leader: Option<tokio_postgres::Client> = None;
@@ -226,6 +230,22 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
                 Ok(json!({"bars": report.bars, "failed": report.failed, "actions": actions, "applied": applied}))
             })
             .await;
+        }
+
+        // The AI sector view, after the pre-open refresh. A model call takes minutes, so it runs
+        // in the background; checked every five minutes.
+        if state.llm.is_some()
+            && now >= session.open - Duration::minutes(75)
+            && now < session.close - Duration::hours(3)
+            && ls
+                .last_ai_check
+                .is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(300))
+            && !ai_view::running()
+        {
+            ls.last_ai_check = Some(Instant::now());
+            if ai_view::needed(state).await? {
+                tokio::spawn(ai_view_job(state.clone(), key.clone()));
+            }
         }
 
         // Pre-open briefing.
@@ -409,6 +429,23 @@ async fn tick(state: &Arc<AppState>, ls: &mut LoopState) -> Result<()> {
 }
 
 /// Job key of a portfolio's daily job.
+/// Forms the day's AI sector view once; a failed attempt is retried by later ticks, up to the
+/// daily attempt cap.
+async fn ai_view_job(state: Arc<AppState>, key: String) {
+    let work_state = state.clone();
+    let _ = once(&state, "ai_view", &key, move || async move {
+        if ai_view::capped(&work_state).await? {
+            return Ok(json!({"skipped": "daily attempt cap reached"}));
+        }
+        let generated = ai_view::generate(&work_state, "system").await?;
+        match &generated.error {
+            None => Ok(json!(generated)),
+            Some(error) => Err(anyhow::anyhow!("view {}: {error}", generated.id)),
+        }
+    })
+    .await;
+}
+
 fn book_key(day_key: &str, book: &Book) -> String {
     format!("{day_key}:p{}", book.portfolio.id)
 }

@@ -34,6 +34,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "portfolios",
         sql: include_str!("../migrations/0002_portfolios.sql"),
     },
+    Migration {
+        version: 3,
+        name: "ai_views",
+        sql: include_str!("../migrations/0003_ai_views.sql"),
+    },
 ];
 
 pub fn create_pool(cfg: &DbConfig) -> Result<Pool> {
@@ -310,7 +315,7 @@ mod upgrade_tests {
         let pool = create_pool(&cfg).unwrap();
         assert_eq!(
             migrate(&pool, &schema, DataSource::Demo).await.unwrap(),
-            vec![2]
+            vec![2, 3]
         );
         let client = pool.get().await.unwrap();
         let row = client

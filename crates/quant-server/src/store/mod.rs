@@ -1,5 +1,6 @@
 //! Data access, grouped by domain. Functions take any `deadpool_postgres::GenericClient`, so the
 //! same code runs on a pooled client or inside a transaction.
+pub mod ai;
 pub mod market;
 pub mod portfolios;
 pub mod settings;

@@ -3,6 +3,7 @@
 // `!(x > 0.0)` is deliberate: it also rejects NaN.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
+pub mod ai;
 pub mod api;
 pub mod auth;
 pub mod config;

@@ -72,7 +72,8 @@ use quant_core::calendar::{MarketCalendar, MarketPhase, Session};
 
 use self::model::{Day, History, Model, PRICE_ANCHOR, Profile, Progress, STEP_MINUTES, Tape};
 use super::{
-    DailyBar, DataSource, Dividend, Interval, IntradayBar, MarketData, MarketError, Quote, Split,
+    DailyBar, DataSource, Dividend, EarningsReport, Interval, IntradayBar, MarketData, MarketError,
+    Quote, Split,
 };
 
 pub use self::model::{HISTORY_START, listing_date};
@@ -355,6 +356,11 @@ impl MarketData for DemoMarket {
     }
 
     async fn dividends(&self, _symbol: &str) -> Result<Vec<Dividend>, MarketError> {
+        Ok(Vec::new())
+    }
+
+    /// Synthetic prices have no fundamentals behind them.
+    async fn earnings(&self, _symbol: &str) -> Result<Vec<EarningsReport>, MarketError> {
         Ok(Vec::new())
     }
 }

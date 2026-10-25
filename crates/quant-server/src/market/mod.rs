@@ -115,6 +115,18 @@ pub struct IntradayBar {
     pub volume: f64,
 }
 
+/// One quarterly report: reported figures once out, the consensus estimate before and after.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EarningsReport {
+    pub symbol: String,
+    /// Announcement date (scheduled, for a report still to come).
+    pub date: NaiveDate,
+    pub eps_actual: Option<f64>,
+    pub eps_estimate: Option<f64>,
+    pub revenue_actual: Option<f64>,
+    pub revenue_estimate: Option<f64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Split {
     pub symbol: String,
@@ -189,4 +201,7 @@ pub trait MarketData: Send + Sync {
 
     /// Historical cash dividends, oldest first.
     async fn dividends(&self, symbol: &str) -> Result<Vec<Dividend>, MarketError>;
+
+    /// Recent and scheduled earnings reports, oldest first.
+    async fn earnings(&self, symbol: &str) -> Result<Vec<EarningsReport>, MarketError>;
 }

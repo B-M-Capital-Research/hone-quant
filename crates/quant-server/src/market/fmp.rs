@@ -43,7 +43,8 @@ use self::endpoints::{ApiKind, Family, Request};
 use self::transport::{FetchError, Transport};
 use self::wire::AdjustedPrices;
 use super::{
-    DailyBar, DataSource, Dividend, Interval, IntradayBar, MarketData, MarketError, Quote, Split,
+    DailyBar, DataSource, Dividend, EarningsReport, Interval, IntradayBar, MarketData, MarketError,
+    Quote, Split,
 };
 
 /// The public FMP host.
@@ -351,6 +352,17 @@ impl FmpClient {
         })
         .await
     }
+
+    async fn fetch_earnings(
+        &self,
+        api: ApiKind,
+        symbol: &str,
+    ) -> Result<Vec<EarningsReport>, FetchError> {
+        self.get(endpoints::earnings(api, symbol), |value| {
+            wire::earnings(value, symbol)
+        })
+        .await
+    }
 }
 
 /// Valid, upper-cased, de-duplicated symbols in request order; invalid ones are skipped.
@@ -482,6 +494,14 @@ impl MarketData for FmpClient {
             .route(Family::Dividends, |api| self.fetch_dividends(api, &symbol))
             .await?;
         Ok(dividends)
+    }
+
+    async fn earnings(&self, symbol: &str) -> Result<Vec<EarningsReport>, MarketError> {
+        let symbol = single_symbol(symbol)?;
+        let (_, reports) = self
+            .route(Family::Earnings, |api| self.fetch_earnings(api, &symbol))
+            .await?;
+        Ok(reports)
     }
 }
 

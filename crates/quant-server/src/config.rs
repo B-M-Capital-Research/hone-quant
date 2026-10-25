@@ -9,6 +9,10 @@
 //! variables, then honeclaw's own `DATABASE_URL` and `HONE_POSTGRES_*` variables (sharing the
 //! instance and database, isolated by schema). FMP keys: `HONE_QUANT_FMP_API_KEYS` / `HONE_QUANT_FMP_API_KEY`, or the
 //! `fmp:` block of honeclaw's `config.yaml` via `HONE_QUANT_HONECLAW_CONFIG`.
+//!
+//! The AI sector view's model is any OpenAI-compatible chat endpoint: `HONE_QUANT_LLM_*`, or a
+//! profile of honeclaw's `llm:` block (`HONE_QUANT_LLM_PROFILE` with `HONE_QUANT_HONECLAW_CONFIG`),
+//! so it can use exactly the Gemini route honeclaw serves. Without either, the view is off.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -81,6 +85,50 @@ pub struct MarketConfig {
     pub key_origin: String,
 }
 
+/// The model behind the AI sector view: an OpenAI-compatible `/chat/completions` endpoint.
+#[derive(Clone)]
+pub struct LlmConfig {
+    /// Up to and including `/v1`, e.g. `http://127.0.0.1:8898/v1` (honeclaw's Gemini proxy).
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    /// Sent as `reasoning_effort` (`low`, `medium`, `high`) when set.
+    pub reasoning_effort: Option<String>,
+    /// Bounds the whole request; a thinking model needs minutes, not seconds.
+    pub timeout_secs: u64,
+    /// Where the settings came from (for the status page; never the key).
+    pub origin: String,
+}
+
+impl std::fmt::Debug for LlmConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LlmConfig")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("reasoning_effort", &self.reasoning_effort)
+            .field("timeout_secs", &self.timeout_secs)
+            .field("origin", &self.origin)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AiConfig {
+    /// `None`: no model configured, the AI sector view is unavailable.
+    pub llm: Option<LlmConfig>,
+    /// honeclaw's full industry ontology (`industry-map.json`): a local path or an http(s) URL.
+    pub ontology: String,
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            llm: None,
+            ontology: crate::universe::ONTOLOGY_URL.to_string(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub bind: SocketAddr,
@@ -115,6 +163,7 @@ pub struct Config {
     /// `X-Hone-Quant-Origin-Token` (added by the Cloudflare Worker), so the origin cannot be
     /// used directly.
     pub origin_token: Option<String>,
+    pub ai: AiConfig,
 }
 
 /// How operators sign in.
@@ -368,22 +417,29 @@ fn database_config(source: DataSource) -> Result<DbConfig> {
     })
 }
 
+fn read_yaml(path: &Path) -> Result<Option<serde_yaml::Value>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => {
+            Ok(Some(serde_yaml::from_str(&text).with_context(|| {
+                format!("{} is not valid YAML", path.display())
+            })?))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
+    }
+}
+
+/// A honeclaw `config.yaml` and its sibling `config.overrides.yaml`.
+fn read_honeclaw(path: &Path) -> Result<(serde_yaml::Value, Option<serde_yaml::Value>)> {
+    let base = read_yaml(path)?.ok_or_else(|| anyhow!("{} does not exist", path.display()))?;
+    let overrides = read_yaml(&path.with_file_name("config.overrides.yaml"))?;
+    Ok((base, overrides))
+}
+
 /// Reads `fmp.api_key`, `fmp.api_keys`, `fmp.base_url` and `fmp.timeout` from a honeclaw
 /// `config.yaml` (and its sibling `config.overrides.yaml`, which takes precedence).
 pub fn fmp_from_honeclaw(path: &Path) -> Result<(Vec<String>, Option<String>, Option<u64>)> {
-    fn read(path: &Path) -> Result<Option<serde_yaml::Value>> {
-        match std::fs::read_to_string(path) {
-            Ok(text) => {
-                Ok(Some(serde_yaml::from_str(&text).with_context(|| {
-                    format!("{} is not valid YAML", path.display())
-                })?))
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
-        }
-    }
-    let base = read(path)?.ok_or_else(|| anyhow!("{} does not exist", path.display()))?;
-    let overrides = read(&path.with_file_name("config.overrides.yaml"))?;
+    let (base, overrides) = read_honeclaw(path)?;
     let pick = |key: &str| -> Option<serde_yaml::Value> {
         overrides
             .as_ref()
@@ -405,6 +461,123 @@ pub fn fmp_from_honeclaw(path: &Path) -> Result<(Vec<String>, Option<String>, Op
     let timeout = pick("timeout").and_then(|v| v.as_u64());
     Ok((dedupe_keys(keys), base_url, timeout))
 }
+
+/// One model route of honeclaw's `llm:` block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HoneclawLlm {
+    pub provider: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    pub reasoning_effort: Option<String>,
+    pub timeout_secs: Option<u64>,
+}
+
+/// Resolves `llm.profiles.<profile>` and the provider it names from a honeclaw `config.yaml`
+/// (`config.overrides.yaml` wins key by key). Only OpenAI-compatible providers can be used.
+pub fn llm_from_honeclaw(path: &Path, profile: &str) -> Result<HoneclawLlm> {
+    let (base, overrides) = read_honeclaw(path)?;
+    let pick = |keys: &[&str]| -> Option<serde_yaml::Value> {
+        let walk = |root: &serde_yaml::Value| {
+            keys.iter()
+                .try_fold(root.clone(), |node, key| node.get(*key).cloned())
+                .filter(|v| !v.is_null())
+        };
+        overrides.as_ref().and_then(walk).or_else(|| walk(&base))
+    };
+    let text = |keys: &[&str]| pick(keys).and_then(|v| v.as_str().map(str::to_string));
+    let provider = text(&["llm", "profiles", profile, "provider"])
+        .ok_or_else(|| anyhow!("honeclaw config has no llm.profiles.{profile}.provider"))?;
+    let model = text(&["llm", "profiles", profile, "model"])
+        .ok_or_else(|| anyhow!("honeclaw config has no llm.profiles.{profile}.model"))?;
+    let kind = text(&["llm", "providers", &provider, "kind"]).unwrap_or_default();
+    if kind != "openai_compatible" {
+        bail!("honeclaw provider {provider} is {kind:?}; only openai_compatible can be used");
+    }
+    let base_url = text(&["llm", "providers", &provider, "base_url"])
+        .ok_or_else(|| anyhow!("honeclaw provider {provider} has no base_url"))?;
+    Ok(HoneclawLlm {
+        api_key: text(&["llm", "providers", &provider, "api_key"]).unwrap_or_default(),
+        timeout_secs: pick(&["llm", "providers", &provider, "timeout"]).and_then(|v| v.as_u64()),
+        reasoning_effort: text(&["llm", "profiles", profile, "params", "reasoning", "effort"]),
+        provider,
+        base_url,
+        model,
+    })
+}
+
+/// The model endpoint must be https, or http on this machine (a loopback proxy).
+fn check_llm_url(raw: &str) -> Result<()> {
+    let url = reqwest::Url::parse(raw)
+        .with_context(|| format!("HONE_QUANT_LLM_BASE_URL is not a URL: {raw:?}"))?;
+    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+    match url.scheme() {
+        "https" => Ok(()),
+        "http" if loopback => Ok(()),
+        _ => bail!("the model endpoint must use https (http only on localhost), got {raw:?}"),
+    }
+}
+
+fn ai_config() -> Result<AiConfig> {
+    let mut route = match (
+        var("HONE_QUANT_LLM_PROFILE"),
+        var("HONE_QUANT_HONECLAW_CONFIG"),
+    ) {
+        (Some(profile), Some(path)) => {
+            let found = llm_from_honeclaw(Path::new(&path), &profile)?;
+            Some(LlmConfig {
+                base_url: found.base_url,
+                api_key: found.api_key,
+                model: found.model,
+                reasoning_effort: found.reasoning_effort,
+                timeout_secs: found.timeout_secs.unwrap_or(DEFAULT_LLM_TIMEOUT_SECS),
+                origin: format!("honeclaw profile {profile} ({path})"),
+            })
+        }
+        (Some(_), None) => bail!("HONE_QUANT_LLM_PROFILE needs HONE_QUANT_HONECLAW_CONFIG"),
+        _ => None,
+    };
+    if let Some(url) = var("HONE_QUANT_LLM_BASE_URL") {
+        let route = route.get_or_insert_with(|| LlmConfig {
+            base_url: String::new(),
+            api_key: DEFAULT_LLM_API_KEY.into(),
+            model: DEFAULT_LLM_MODEL.into(),
+            reasoning_effort: Some("low".into()),
+            timeout_secs: DEFAULT_LLM_TIMEOUT_SECS,
+            origin: "HONE_QUANT_LLM_BASE_URL".into(),
+        });
+        route.base_url = url;
+    }
+    if let Some(route) = route.as_mut() {
+        if let Some(model) = var("HONE_QUANT_LLM_MODEL") {
+            route.model = model;
+        }
+        if let Some(key) = var("HONE_QUANT_LLM_API_KEY") {
+            route.api_key = key;
+        }
+        if let Some(effort) = var("HONE_QUANT_LLM_REASONING_EFFORT") {
+            route.reasoning_effort = (effort != "none").then_some(effort);
+        }
+        route.timeout_secs =
+            parse_num("HONE_QUANT_LLM_TIMEOUT_SECS", route.timeout_secs)?.clamp(30, 900);
+        route.base_url = route.base_url.trim_end_matches('/').to_string();
+        check_llm_url(&route.base_url)?;
+        if route.model.is_empty() {
+            bail!("HONE_QUANT_LLM_MODEL is empty");
+        }
+    }
+    Ok(AiConfig {
+        llm: route,
+        ontology: var("HONE_QUANT_ONTOLOGY")
+            .unwrap_or_else(|| crate::universe::ONTOLOGY_URL.into()),
+    })
+}
+
+/// honeclaw's Gemini route: the loopback proxy that registers as an `openai_compatible` provider.
+pub const DEFAULT_LLM_MODEL: &str = "gemini-3.8-flash-medium";
+/// The loopback proxy requires a non-empty key and ignores it.
+const DEFAULT_LLM_API_KEY: &str = "local-proxy";
+const DEFAULT_LLM_TIMEOUT_SECS: u64 = 600;
 
 fn dedupe_keys(keys: Vec<String>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -589,6 +762,7 @@ impl Config {
             base_path: normalize_base_path(&var("HONE_QUANT_BASE_PATH").unwrap_or_default())?,
             auth: auth_mode()?,
             origin_token: origin_token()?,
+            ai: ai_config()?,
         })
     }
 }
@@ -629,6 +803,41 @@ mod tests {
         assert!(!valid_schema_name("1abc"));
         assert!(!valid_schema_name("a;drop"));
         assert!(!valid_schema_name(""));
+    }
+
+    #[test]
+    fn honeclaw_llm_profile_resolves_its_provider() {
+        let dir = std::env::temp_dir().join(format!("hq-llm-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config.yaml");
+        std::fs::write(
+            &config,
+            "llm:\n  providers:\n    gemini_build:\n      kind: openai_compatible\n      base_url: http://127.0.0.1:8898/v1\n      api_key: local-proxy\n      timeout: 600\n    openrouter:\n      kind: openrouter\n      base_url: https://openrouter.ai/api/v1\n  profiles:\n    gemini_flash:\n      provider: gemini_build\n      model: gemini-3.7-flash-medium\n      params:\n        reasoning:\n          effort: low\n    other:\n      provider: openrouter\n      model: x\n",
+        )
+        .unwrap();
+        let found = llm_from_honeclaw(&config, "gemini_flash").unwrap();
+        assert_eq!(found.base_url, "http://127.0.0.1:8898/v1");
+        assert_eq!(found.model, "gemini-3.7-flash-medium");
+        assert_eq!(found.reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(found.timeout_secs, Some(600));
+        assert!(llm_from_honeclaw(&config, "other").is_err());
+        assert!(llm_from_honeclaw(&config, "missing").is_err());
+        std::fs::write(
+            dir.join("config.overrides.yaml"),
+            "llm:\n  profiles:\n    gemini_flash:\n      model: gemini-3.8-flash-medium\n",
+        )
+        .unwrap();
+        let found = llm_from_honeclaw(&config, "gemini_flash").unwrap();
+        assert_eq!(found.model, "gemini-3.8-flash-medium");
+        assert_eq!(found.provider, "gemini_build");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn llm_urls_are_https_or_loopback() {
+        assert!(check_llm_url("http://127.0.0.1:8898/v1").is_ok());
+        assert!(check_llm_url("https://generativelanguage.googleapis.com/v1beta/openai").is_ok());
+        assert!(check_llm_url("http://example.com/v1").is_err());
     }
 
     #[test]

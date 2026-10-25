@@ -18,7 +18,7 @@ use quant_server::market::{DataSource, MarketData};
 use quant_server::services::{bootstrap, marketdata, scheduler};
 use quant_server::state::{AppState, offset_clock, system_clock};
 use quant_server::store::system;
-use quant_server::{api, auth, config, crypto, db, honeclaw_auth, universe};
+use quant_server::{ai, api, auth, config, crypto, db, honeclaw_auth, universe};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -191,8 +191,16 @@ async fn build_state(config: Config) -> Result<Arc<AppState>> {
             )?))
         }
     };
+    let llm = match &config.ai.llm {
+        Some(route) => {
+            tracing::info!(model = %route.model, origin = %route.origin, "AI sector view model configured");
+            Some(Arc::new(ai::llm::LlmClient::new(route.clone())?) as Arc<dyn ai::llm::ChatModel>)
+        }
+        None => None,
+    };
     Ok(Arc::new(AppState {
         honeclaw,
+        llm,
         secrets: crypto::SecretBox::new(&config.secret_key),
         config: Arc::new(config),
         pool,
