@@ -85,6 +85,58 @@ Frozen (locked) names keep their current weight and are left outside these steps
 stores the full diagnostics — breadth, sector scores, budgets and caps, each company's volatility,
 momentum, rank, multipliers and final weight — and shows them on the plan's page.
 
+### The AI sector view (optional)
+
+The `ai` group of the strategy parameters decides whether plans consult the **AI sector view**. It
+is the only outside input to step 2 and acts on sector scores only: never on the names inside a
+sector, total exposure or any cap.
+
+**How a view is formed.** 75 minutes before each session's open (only when some portfolio's active
+strategy consults it and a model is configured), the server hands a dated briefing to the model —
+by default the Gemini route hone-claw.com's chat uses, i.e. honeclaw's loopback Gemini proxy:
+
+- **Ontology research**: for each sector of honeclaw's industry ontology, the brief, the driver
+  chain, the key variables, the latest readings of its upstream signals, the watch items and the
+  newest sources — only material dated on or before the last close; research not updated for 120
+  days is flagged stale;
+- **Market statistics** from adjusted closes: each sector's equal-weight index return over 1, 3, 6
+  and 12 months, 3-month volatility, distance to the 200-day average and to the one-year high, the
+  share of members above their 200-day average; and SPY, QQQ, SMH;
+- **Earnings** from FMP: each company's last EPS and revenue surprise against consensus, and its
+  next report date.
+
+The model returns, per sector, a *stance* (an integer from −2 to +2), a confidence *c* (0 to 0.9),
+a rationale, risks and dated evidence. The prompt requires neutral by default, the material only,
+and that price moves alone are not evidence (step 2's momentum signals showed no predictive power
+in this universe).
+
+**Validation is deterministic, not left to the model.** Sectors outside the universe are ignored;
+numbers are clamped; evidence dated after the last close is dropped; a non-zero stance needs at
+least two pieces of evidence, at least one of them dated ontology research or an earnings report,
+or it is set back to neutral and flagged *not enough evidence*. Every attempt, successful or not,
+is stored with the material the model read and its raw answer (`ai_views`) and can be inspected on
+the *AI sector view* page. To protect the model quota shared with honeclaw, the model is called at
+most four times in any 24 hours.
+
+**How a view is used.** After the momentum tilt, the sector's score is multiplied by
+
+> multiplier = 1 + max tilt × (stance / 2) × c (1 when c is below the minimum confidence)
+
+With the default 25% maximum tilt the strongest view (+2 at 0.9) is ×1.225; sector floors and caps,
+the single-name cap and the volatility ceiling apply afterwards. A view whose last close is older
+than its lifetime (default five calendar days) is not used.
+
+**Three modes.** *Off*: not consulted. *Shadow*: plans trade the rules as usual and also compute
+the targets with the same view; both sets are stored in the plan's diagnostics (`ai`). *Live*:
+plans trade the targets with the view and store the ones without it.
+
+**Why shadow first.** AI views cannot be tested on history: the model knows what happened, and the
+ontology is not archived point-in-time, so any "backtest" would be optimistic. Backtests therefore
+never apply the view. The only credible test is forward: the AI page holds each plan's targets
+*with − without* until the next plan and values them on every following adjusted close (extra
+trading costs excluded), reporting the cumulative and mean contribution, the share of positive
+days, a t-statistic and the contribution by sector. Below about 60 trading days it is mostly noise.
+
 ## 3. From targets to orders
 
 1. Locked names and names without a usable quote are never traded.
@@ -220,6 +272,8 @@ The backtester runs the **same** strategy, rebalancer and cost model over daily 
 - *Late listings.* Companies enter only once they have enough history; the report lists them.
 - *Execution.* Fills at the open/close plus fixed slippage ignore market impact and intraday
   liquidity — reasonable for these position sizes, not a guarantee.
+- *No AI sector view.* There are no point-in-time AI views for the past: backtests run with the
+  view off, even for a version that consults it.
 - *Short periods.* Annualised figures (CAGR, volatility, Sharpe, Sortino, Calmar, alpha, beta,
   information ratio) are not computed from fewer than 21 trading days and are marked * as
   unreliable below 63 (about three months); even a year of data is a small sample.

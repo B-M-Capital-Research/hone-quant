@@ -136,6 +136,23 @@ curl -sS http://127.0.0.1:8090/api/health  # on the VM, no token needed
   other users on the VM can read process arguments.
 - **Start the paper account over.** Settings → Account → reset, with a new starting cash; open
   plans are cancelled and the reset is recorded in the audit log.
+- **AI sector view.** It uses the same Gemini route as hone-claw.com's chat: honeclaw's loopback
+  proxy (`hone-gemini-proxy.service`, OpenAI-compatible, `127.0.0.1:8898`). Add to
+  `/etc/hone-quant/runtime.env` and restart:
+
+  ```sh
+  HONE_QUANT_LLM_BASE_URL=http://127.0.0.1:8898/v1
+  HONE_QUANT_LLM_MODEL=gemini-3.8-flash-medium      # the model honeclaw's gemini_build route serves
+  # The full ontology; without this the public copy on GitHub is read (no live edits).
+  HONE_QUANT_ONTOLOGY=/opt/hone/current/skills/industry-map/references/industry-map.json
+  ```
+
+  The `hone-quant` user must be able to read that ontology file. Nothing calls the model until a
+  portfolio's active strategy sets *AI sector view* to Shadow or Live; then it runs once per
+  trading day 75 minutes before the open (at most four calls in 24 hours, manual runs included).
+  The quota is honeclaw's: check it before switching on (honeclaw's
+  `docs/runbooks/backend-deployment.md`, *Temporary Gemini account authorization*). Start in
+  Shadow and read the forward test on the *AI sector view* page before going Live.
 
 ## Roll back
 
